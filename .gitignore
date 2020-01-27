@@ -1,0 +1,4 @@
+__pycache__
+.vscode
+tf_records
+outputs
