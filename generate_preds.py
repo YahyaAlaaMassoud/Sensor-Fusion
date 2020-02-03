@@ -24,6 +24,7 @@ from pixor_utils.params import params
 from pixor_utils.model_utils import save_model, load_model
 from pixor_utils.pointcloud_encoder import OccupancyCuboid
 from pixor_utils.pred_utils import boxes_to_pred_str
+from get_pred import generate_preds
 
 from pixor_targets import PIXORTargets
 
@@ -54,7 +55,7 @@ EPOCHS = params['epochs']
 NUM_THREADS = params['n_threads']
 MAX_Q_SIZE = params['max_queue_size']
 
-kitti = KITTI(DS_DIR, PEDESTRIANS_ONLY)
+kitti = KITTI(DS_DIR, CARS_ONLY)
 
 train_ids = kitti.get_ids('train')
 val_ids = kitti.get_ids('val')
@@ -71,90 +72,92 @@ target_encoder = PIXORTargets(shape=TARGET_SHAPE,
 #--------------------------------------#
 os.system('clear')
 rand_idx = np.random.randint(0, len(train_ids))
+'''
+  IDS that suck:
+    - 001690
+'''
 test_id  = train_ids[rand_idx]
 print(test_id)
 pts, _ = kitti.get_velo(test_id, use_fov_filter=False)
 test_pc_encoder(pc_encoder, pts.T)
 boxes = kitti.get_boxes_3D(test_id)
 test_target_encoder(target_encoder, boxes)
-  
-# epoch = 112
 
-# chkpt_json = 'outputs/ckpts_ped_only/PIXOR_PP_PREDESTRIAN_ONLY__epoch_{0}.json'.format(epoch)
+for i in range(77, 64, -1):
+  epoch = i
+  chkpt_dir  = 'outputs/ckpts_biFPN_car_noRelu_conv_/'
+  exp_id     = 'bifpn_car_noRelu_conv'
+  chkpt_json = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.json'.format(epoch)
+  chkpt_h5   = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.h5'.format(epoch)
+  exp_name   = exp_id + '_{0}/data/'.format(epoch)
 
-# chkpt_h5   = 'outputs/ckpts_ped_only/PIXOR_PP_PREDESTRIAN_ONLY__epoch_{0}.h5'.format(epoch)
-# exp_name   = 'pixor_pp_pedestrians_epoch_{0}/data/'.format(epoch)
+  # Create dirs
+  # EXP_DIR = os.path.join(exp_name)
 
-epoch = 28
-chkpt_json = 'outputs/ckpts_biFPN_car/pixor_bifpn_car__epoch_{0}.json'.format(epoch)
-chkpt_h5   = 'outputs/ckpts_biFPN_car/pixor_bifpn_car__epoch_{0}.h5'.format(epoch)
-exp_name   = 'bifpn_car_epoch_{0}/data/'.format(epoch)
+  # print("Creating directory: " + EXP_DIR)
+  # os.makedirs(EXP_DIR, exist_ok=True)
 
-
-# Create dirs
-EXP_DIR = os.path.join(exp_name)
-
-print("Creating directory: " + EXP_DIR)
-os.makedirs(EXP_DIR, exist_ok=True)
-
-trained_model = load_model(chkpt_json, chkpt_h5, {'BiFPN': BiFPN})
-optimizer = Adam(lr=LEARNING_RATE)
-losses = {
-            'output_map': pixor_loss
-         }
-metrics = {
-            'output_map': [smooth_L1_metric, binary_focal_loss_metric]
+  trained_model = load_model(chkpt_json, chkpt_h5, {'BiFPN': BiFPN})
+  optimizer = Adam(lr=LEARNING_RATE)
+  losses = {
+              'output_map': pixor_loss
           }
-trained_model.compile(optimizer=optimizer,
-                      loss=losses,
-                      metrics=metrics)
+  metrics = {
+              'output_map': [smooth_L1_metric, binary_focal_loss_metric]
+            }
+  trained_model.compile(optimizer=optimizer,
+                        loss=losses,
+                        metrics=metrics)
 
-trained_model.summary()
-val_gen = TrainingGenerator(reader=kitti, frame_ids=val_ids, batch_size=1,
-                              pc_encoder=pc_encoder, target_encoder=target_encoder,
-                              n_threads=NUM_THREADS, max_queue_size=MAX_Q_SIZE)
+  trained_model.summary()
 
-val_gen.start()
+  generate_preds(trained_model, kitti, pc_encoder, target_encoder, val_ids, epoch, chkpt_dir, exp_id)
 
-for batch_id in range(val_gen.batch_count):
-  batch = val_gen.get_batch()
-  frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
-  encoded_targets = batch['encoded_targets']
-  outmap = np.squeeze(trained_model.predict_on_batch(encoded_pcs).numpy())
-  decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.5)
-  decoded_boxes = nms_bev(decoded_boxes,
-                          params['iou_threshold'],
-                          params['max_boxes'],
-                          params['min_hit'],
-                          params['axis_aligned'])
+# val_gen = TrainingGenerator(reader=kitti, frame_ids=val_ids, batch_size=1,
+#                               pc_encoder=pc_encoder, target_encoder=target_encoder,
+#                               n_threads=NUM_THREADS, max_queue_size=MAX_Q_SIZE)
 
-  # # if len(decoded_boxes) > 2:
-  # #   obj = np.squeeze(outmap[..., 0])
-  # #   obj[obj >= 0.5] = 1.
-  # #   obj[obj <  0.5] = 0.
-  # #   tar = np.squeeze(encoded_targets[..., 0])
-  # #   plt.imshow(obj, cmap='gray')
-  # #   plt.savefig('{0}_obj'.format(frames[0]))
-  # #   plt.imshow(tar, cmap='gray')
-  # #   plt.savefig('{0}_tar'.format(frames[0]))
-  # #   break
-  # # else:
-  boxes = target_encoder.decode(np.squeeze(encoded_targets), 0.5)
-  boxes = nms_bev(boxes,
-                  params['iou_threshold'],
-                  params['max_boxes'],
-                  params['min_hit'],
-                  params['axis_aligned'])
-  # for box in boxes:
-  #   yaws.append(box.yaw)
+# val_gen.start()
+
+# for batch_id in range(val_gen.batch_count):
+#   batch = val_gen.get_batch()
+#   frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
+#   encoded_targets = batch['encoded_targets']
+#   outmap = np.squeeze(trained_model.predict_on_batch(encoded_pcs).numpy())
+#   decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.5)
+#   decoded_boxes = nms_bev(decoded_boxes,
+#                           params['iou_threshold'],
+#                           params['max_boxes'],
+#                           params['min_hit'],
+#                           params['axis_aligned'])
+
+#   # # if len(decoded_boxes) > 2:
+#   # #   obj = np.squeeze(outmap[..., 0])
+#   # #   obj[obj >= 0.5] = 1.
+#   # #   obj[obj <  0.5] = 0.
+#   # #   tar = np.squeeze(encoded_targets[..., 0])
+#   # #   plt.imshow(obj, cmap='gray')
+#   # #   plt.savefig('{0}_obj'.format(frames[0]))
+#   # #   plt.imshow(tar, cmap='gray')
+#   # #   plt.savefig('{0}_tar'.format(frames[0]))
+#   # #   break
+#   # # else:
+#   boxes = target_encoder.decode(np.squeeze(encoded_targets), 0.5)
+#   boxes = nms_bev(boxes,
+#                   params['iou_threshold'],
+#                   params['max_boxes'],
+#                   params['min_hit'],
+#                   params['axis_aligned'])
+#   # for box in boxes:
+#   #   yaws.append(box.yaw)
   
-  # print('got', len(decoded_boxes), 'exp', len(boxes))
+#   # print('got', len(decoded_boxes), 'exp', len(boxes))
 
-  lines = boxes_to_pred_str(decoded_boxes, kitti.get_calib(frames[0])[2])
-  with open(os.path.join(exp_name, frames[0] + '.txt'), 'w') as txt:
-        if len(decoded_boxes) > 0:
-            txt.writelines(lines)
-  print(frames[0], 'got',len(decoded_boxes), 'exp', len(boxes))
+#   lines = boxes_to_pred_str(decoded_boxes, kitti.get_calib(frames[0])[2])
+#   with open(os.path.join(exp_name, frames[0] + '.txt'), 'w') as txt:
+#         if len(decoded_boxes) > 0:
+#             txt.writelines(lines)
+#   print(frames[0], 'got',len(decoded_boxes), 'exp', len(boxes))
   
-val_gen.stop()
+# val_gen.stop()
 
