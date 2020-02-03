@@ -213,3 +213,12 @@ def bev(pts=None, gt_boxes=None, pred_boxes=None, scale=1.0, title='', ax=None, 
 
 def open3d(pts=None):
     pass
+
+def box_filter(pts, box_lim, decorations=None):
+    x_range, y_range, z_range = box_lim
+    mask = ((pts[0] >= x_range[0]) & (pts[0] <= x_range[1]) &
+            (pts[1] >= y_range[0]) & (pts[1] <= y_range[1]) &
+            (pts[2] >= z_range[0]) & (pts[2] <= z_range[1]))
+    pts = pts[:, mask]
+    return pts if decorations is None else pts, decorations[:, mask]
+

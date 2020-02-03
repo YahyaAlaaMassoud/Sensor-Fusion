@@ -5,6 +5,8 @@ import numpy as np
 import time
 import timeit
 import random
+from core.augmentation import per_box_dropout, per_box_rotation_translation, flip_along_y, global_scale, global_rot, global_trans
+from core.kitti import box_filter 
 
 class Training_Generator_Thread(threading.Thread):
     def __init__(self, queue, max_queue_size, reader, frame_ids, batch_size, pc_encoder, target_encoder, verbose=False):
@@ -24,6 +26,14 @@ class Training_Generator_Thread(threading.Thread):
         self.stop_flag = False
         self.batch_count = int(np.ceil(len(self.frame_ids) / self.batch_size))
         
+        self.augmentations = [per_box_dropout(0.1), 
+                              flip_along_y(),
+                              per_box_rotation_translation(rot_range=(-1.57, 1.57), trans_range=((-2, 2), (-0.1, 0.1), (-2, 2))),
+                              global_scale((0.9, 1.0)), 
+                              global_rot((0.05, 0.05)), 
+                              global_trans(((-2, 2), (-0.5, 0.5), (-3, 3))),
+                              None, None, None, None]
+        
         self.verbose = verbose
 
     def add_batch(self):
@@ -37,11 +47,17 @@ class Training_Generator_Thread(threading.Thread):
         for i in range(len(selected_frame_ids)):
             # Input
             pts, reflectance = self.reader.get_velo(selected_frame_ids[i], use_fov_filter=False)  # Load velo
-            batch['encoded_pcs'][i] = self.pc_encoder.encode(pts.T, reflectance)
-
             # Output
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
-            batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
+            
+            aug_fn = np.random.choice(self.augmentations)
+            if aug_fn is not None:
+                (pts, reflectance), gt_boxes_3D = aug_fn((pts, reflectance), gt_boxes_3D)
+                pts, reflectance = box_filter(pts, ((-40, 40), (-1, 2.5), (0, 70)), decorations=reflectance)
+                
+                batch['encoded_pcs'][i] = self.pc_encoder.encode(pts.T, reflectance)
+                batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
+                
         # end = timeit.default_timer()
         # print('adding batch took {0}', end-start)
         self.queue.put(batch)

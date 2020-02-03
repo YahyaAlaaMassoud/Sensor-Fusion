@@ -68,3 +68,16 @@ class Box3D:
 
     def __str__(self):
         return "Center: (%.3f, %.3f, %.3f)   HWL: (%.3f, %.3f, %.3f)  YAW: %.3f" % (self.x, self.y, self.z, self.h, self.w, self.l, self.yaw)
+
+def get_corners_3D(box):
+    corners = np.array([[-box.l / 2, box.l / 2, box.l / 2, -box.l / 2, -box.l / 2, box.l / 2, box.l / 2, -box.l / 2],
+                        [0, 0, 0, 0, -box.h, -box.h, -box.h, -box.h],
+                        [-box.w / 2, -box.w / 2, box.w / 2, box.w / 2, -box.w / 2, -box.w / 2, box.w / 2, box.w / 2]], dtype=np.float32)
+    H = np.dot(translation_matrix(box.x, box.y, box.z), rot_y_matrix(box.yaw))
+    return transform(H, corners)
+
+def translate_box_3D(box, x, y, z):
+    box.x += x
+    box.y += y
+    box.z += z
+    return box
