@@ -4,3 +4,5 @@ tf_records
 outputs
 misc
 utils
+eval_kitti
+eval_kitti_2
