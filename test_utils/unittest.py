@@ -29,6 +29,7 @@ def test_target_encoder(target_encoder, boxes):
                                             boxes, expecting shape (200, 175, 7), got {0}'.format(target.shape)
     decoded_boxes = target_encoder.decode(target, 0.5)
     filtered_boxes = nms_bev(decoded_boxes, 0.1, 10000, 0, False)
+    print(len(boxes), len(decoded_boxes), len(filtered_boxes))
     assert len(filtered_boxes) == len(boxes), 'Test Target Encoder -> length of GT boxes and Pred boxes do not match'
     matched_boxes = []
     for p_box in filtered_boxes:
