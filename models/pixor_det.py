@@ -39,9 +39,9 @@ class BiFPN(Layer):
   def call(self, x):
     assert isinstance(x, list)
 
-    w = ReLU()(self.w)
-    x = tf.reduce_sum([w[i] * x[i] for i in range(len(x))], axis=0)
-    x = x / (tf.reduce_sum(w) + self.eps)
+    # w = ReLU()(self.w)
+    x = tf.reduce_sum([self.w[i] * x[i] for i in range(len(x))], axis=0)
+    x = x / (tf.reduce_sum(self.w) + self.eps)
     
     return x
 
@@ -74,11 +74,13 @@ def sep_conv_block(x, filters, kernel_size, padding):
 def build_BiFPN(fmap1, fmap2, fmap3, filters=192):#fmap4, filters=192):
   with tf.name_scope("BiFPN"):
 
-    fmap3_resized = tf.image.resize(fmap3, size=get_new_shape(fmap3, 2))#UpSampling2D(data_format='channels_last', interpolation='bilinear')(fmap3)
+    fmap3_resized = tf.image.resize(fmap3, size=get_new_shape(fmap3, 2), method='nearest')#UpSampling2D(data_format='channels_last', interpolation='bilinear')(fmap3)
+    fmap3_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3)(fmap3_resized)
 
     fmap2_inter_out = BiFPN()([fmap3_resized, fmap2])
     fmap2_inter_out = sep_conv_block(fmap2_inter_out, filters=filters, kernel_size=3, padding='same')
-    fmap2_inter_out_resized = tf.image.resize(fmap2_inter_out, size=get_new_shape(fmap2_inter_out, 2))#UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')(fmap2_inter_out)
+    fmap2_inter_out_resized = tf.image.resize(fmap2_inter_out, size=get_new_shape(fmap2_inter_out, 2), method='nearest')#UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')(fmap2_inter_out)
+    fmap2_inter_out_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3)(fmap2_inter_out_resized)
     
     fmap1_out = BiFPN()([fmap2_inter_out_resized, fmap1])
     fmap1_out = sep_conv_block(fmap1_out, filters=filters, kernel_size=3, padding='same')
@@ -205,8 +207,9 @@ def create_pixor_det(input_shape=(800, 700, 35),
     with tf.name_scope("FinalOutput"):
       out2 = AveragePooling2D()(out2)
 
-      out4 = tf.image.resize(out4, size=get_new_shape(out4, 2))#UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')(out4)
-
+      out4 = tf.image.resize(out4, size=get_new_shape(out4, 2), method='nearest')#UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='bilinear')(out4)
+      out4 = SeparableConv2D(filters=BiFPN_filters, kernel_size=KERNEL_SIZE['Block4'], padding=PADDING)(out4)
+      
       # print(out2.shape, out3.shape, out4.shape)
       # concat = BiFPN()([out2, out3, out4])
       concat = Concatenate(axis=-1)([out2, out3, out4])
