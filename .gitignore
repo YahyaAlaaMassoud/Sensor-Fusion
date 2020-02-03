@@ -6,3 +6,4 @@ misc
 utils
 eval_kitti
 eval_kitti_2
+train_kitti.py
