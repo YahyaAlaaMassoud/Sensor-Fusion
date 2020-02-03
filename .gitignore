@@ -7,3 +7,5 @@ utils
 eval_kitti
 eval_kitti_2
 train_kitti.py
+test_utils/test_encoded_pc.png
+test_utils/test_encoded_target.png
