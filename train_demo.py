@@ -10,6 +10,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import timeit
 import random
+import pprint
 
 from datetime import datetime
 from datasets.kitti import KITTI
@@ -25,7 +26,7 @@ DS_DIR = os.path.expanduser(configs['dataset_path'])
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = configs["gpu_id"]
 
-np.random.seed(0)
+# np.random.seed(0)
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -70,23 +71,12 @@ val_ids = kitti.get_ids('val')
 micro_ids = kitti.get_ids('micro')
 
 pc_encoder = configs['pc_encoder'](shape=INPUT_SHAPE, P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
+
 target_encoder = configs['target_encoder'](shape=TARGET_SHAPE,
-                                            target_means=TARGET_MEANS, target_stds=TARGET_STDS,
-                                            mean_height=MEAN_HEIGHT, mean_altitude=MEAN_ALTITUDE,
+                                            stats=configs['stats'],
                                             P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
 
-# rand_idx = np.random.randint(0, len(train_ids))
-# test_id  = train_ids[rand_idx]
-# img = kitti.get_image(test_id)
-# plt.imshow(img)
-# plt.axis('off')
-# plt.savefig('1.png', bbox_inches='tight', pad_inches=0)
-# print(img.shape)
-# img = tf.image.resize(img, (img.shape[0] // 4, img.shape[1] // 4))
-# print(img.shape)
-# plt.imshow(img)
-# plt.axis('off')
-# plt.savefig('2.png', bbox_inches='tight', pad_inches=0)
+pprint.pprint(configs['stats'])
 
 #--------------------------------------#
 #-----------RUN UNIT TESTS-------------#
@@ -107,7 +97,6 @@ else:
 optimizer = configs['optimizer'](lr=LEARNING_RATE)
 losses = configs['losses']
 metrics = configs['metrics']
-
 
 model.compile(optimizer=optimizer,
               loss=losses,
@@ -134,12 +123,17 @@ cur_lr = LEARNING_RATE
 def calc_lr(epoch, steps_per_epoch, min_lr, max_lr, cycle_length):
     pass
 
-def schedule(epoch, lr):
-    if epoch % 20 == 0:
-        if lr == 0.001:
-            lr = 0.01
-        else:
-            lr = 0.001
+def schedule(epoch):
+    if epoch == 1:
+        lr = 0.001
+    elif epoch <= 3:
+        lr = 0.0001
+    elif epoch <= 5:
+        lr = 0.001
+    elif epoch <= 35:
+        lr = 0.0001
+    else:
+        lr = 0.00001
     return lr
     # if epoch < 20:
     #     return 0.001
@@ -162,35 +156,33 @@ for cur_epoch in range(1, EPOCHS):
 
         print('Total number of batches is ->',train_gen.batch_count)
         
+        
         for batch_id in range(train_gen.batch_count):
             # Fetch batch
             batch = train_gen.get_batch()
             encoded_pcs, encoded_targets = batch['encoded_pcs'], batch['encoded_targets']
             
-            # K.set_value(model.optimizer.lr, calc_lr(epoch=cur_epoch, steps_per_epoch=10, min_lr=1e-4, max_lr=1e-2, cycle_length=30))
-            # K.set_value(model.optimizer.lr, schedule(cur_epoch, model.optimizer.lr.numpy()))
-            # print('in epoch ->', cur_epoch, 'cur lr ->', model.optimizer.lr.numpy())
-            if train_steps is not 0 and train_steps % (len(train_ids) // 4) == 0:
-                if cur_lr == 0.001:
-                    print('changing to 0.0001')
-                    cur_lr = 0.0001
-                else:
-                    print('changing to 0.001')
-                    cur_lr = 0.001
-                if cur_epoch > 5:
-                    cur_lr = 0.0001
-            K.set_value(model.optimizer.lr, cur_lr)
+            # if train_steps is not 0 and train_steps % (len(train_ids) // 4) == 0:
+            #     if cur_lr == 0.001:
+            #         print('changing to 0.0001')
+            #         cur_lr = 0.0001
+            #     else:
+            #         print('changing to 0.001')
+            #         cur_lr = 0.001
+            #     if cur_epoch > 5:
+            #         cur_lr = 0.0001
+            K.set_value(model.optimizer.lr, schedule(cur_epoch))
             # print('cur epoch ->', cur_epoch, ' cur lr ->', model.optimizer.lr.numpy())
-            metrics = model.train_on_batch(x=encoded_pcs, y=encoded_targets)
-            
+            metrics = model.train_on_batch(x=encoded_pcs, y=encoded_targets, reset_metrics=True)
+
             for metric_name, metric_val in zip(model.metrics_names, metrics):
                 experiment.log_metric(metric_name, metric_val, train_steps)
 
-            experiment.log_metric('lr', cur_lr, train_steps)
+            experiment.log_metric('lr', model.optimizer.lr.numpy(), train_steps)
 
             train_steps += 1
 
-            del encoded_pcs, encoded_targets
+            # del encoded_pcs, encoded_targets
 
             if batch_id > cur_progress:
                 print('Processed {0} train samples in {1}'.format(cur_progress, (timeit.default_timer() - start) // 60))

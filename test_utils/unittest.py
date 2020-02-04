@@ -12,7 +12,8 @@ def test_pc_encoder(pc_encoder, pts):
     reflectance = None
     encoded_pc = pc_encoder.encode(pts, reflectance)
     plt.imshow(np.sum(encoded_pc, axis=2) > 0)
-    plt.savefig(os.path.dirname(__file__) + '/test_encoded_pc.png')
+    plt.axis('off')
+    plt.savefig(os.path.dirname(__file__) + '/test_encoded_pc.png', bbox_inches='tight', pad_inches=0)
     assert encoded_pc.shape == (800, 700, 35), 'Test PC Encoder -> Something wrong happened while Encoding PC \
                                                 expecting shape (800, 700, 35), got {0}'.format(encoded_pc.shape)
     print('PC encoder test status: OK')
@@ -24,8 +25,9 @@ def test_target_encoder(target_encoder, boxes):
     assert target_encoder is not None, 'Test Target Encoder -> target_encoder is None'
     target = np.squeeze(target_encoder.encode(boxes))
     plt.imshow(target[...,0])
-    plt.savefig(os.path.dirname(__file__) + '/test_encoded_target.png')
-    assert target.shape == (200, 175, 7), 'Test Target Encoder -> Something wrong happened while Encoding \
+    plt.axis('off')
+    plt.savefig(os.path.dirname(__file__) + '/test_encoded_target.png', bbox_inches='tight', pad_inches=0)
+    assert target.shape == (200, 175, 9), 'Test Target Encoder -> Something wrong happened while Encoding \
                                             boxes, expecting shape (200, 175, 7), got {0}'.format(target.shape)
     decoded_boxes = target_encoder.decode(target, 0.5)
     filtered_boxes = nms_bev(decoded_boxes, 0.1, 10000, 0, False)
