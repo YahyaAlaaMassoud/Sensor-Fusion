@@ -8,7 +8,7 @@ import timeit
 DS_DIR = os.path.expanduser('/home/salam/datasets/KITTI/training')
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 from tensorflow.keras.optimizers import Adam
 # import tensorflow as tf
@@ -75,6 +75,7 @@ rand_idx = np.random.randint(0, len(train_ids))
 '''
   IDS that suck:
     - 001690
+    - 002333
 '''
 test_id  = train_ids[rand_idx]
 print(test_id)
@@ -83,35 +84,35 @@ test_pc_encoder(pc_encoder, pts.T)
 boxes = kitti.get_boxes_3D(test_id)
 test_target_encoder(target_encoder, boxes)
 
-for i in range(77, 64, -1):
-  epoch = i
-  chkpt_dir  = 'outputs/ckpts_biFPN_car_noRelu_conv_/'
-  exp_id     = 'bifpn_car_noRelu_conv'
-  chkpt_json = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.json'.format(epoch)
-  chkpt_h5   = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.h5'.format(epoch)
-  exp_name   = exp_id + '_{0}/data/'.format(epoch)
+# for i in range(80, 82):
+epoch = 40
+chkpt_dir  = 'outputs/ckpts_biFPN_car_noRelu_conv_/'
+exp_id     = 'bifpn_car_noRelu_conv'
+chkpt_json = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.json'.format(epoch)
+chkpt_h5   = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.h5'.format(epoch)
+exp_name   = exp_id + '_{0}/data/'.format(epoch)
 
-  # Create dirs
-  # EXP_DIR = os.path.join(exp_name)
+# Create dirs
+# EXP_DIR = os.path.join(exp_name)
 
-  # print("Creating directory: " + EXP_DIR)
-  # os.makedirs(EXP_DIR, exist_ok=True)
+# print("Creating directory: " + EXP_DIR)
+# os.makedirs(EXP_DIR, exist_ok=True)
 
-  trained_model = load_model(chkpt_json, chkpt_h5, {'BiFPN': BiFPN})
-  optimizer = Adam(lr=LEARNING_RATE)
-  losses = {
-              'output_map': pixor_loss
+trained_model = load_model(chkpt_json, chkpt_h5, {'BiFPN': BiFPN})
+optimizer = Adam(lr=LEARNING_RATE)
+losses = {
+            'output_map': pixor_loss
           }
-  metrics = {
-              'output_map': [smooth_L1_metric, binary_focal_loss_metric]
-            }
-  trained_model.compile(optimizer=optimizer,
-                        loss=losses,
-                        metrics=metrics)
+metrics = {
+            'output_map': [smooth_L1_metric, binary_focal_loss_metric]
+          }
+trained_model.compile(optimizer=optimizer,
+                      loss=losses,
+                      metrics=metrics)
 
-  trained_model.summary()
+trained_model.summary()
 
-  generate_preds(trained_model, kitti, pc_encoder, target_encoder, val_ids, epoch, chkpt_dir, exp_id)
+generate_preds(trained_model, kitti, pc_encoder, target_encoder, val_ids, epoch, chkpt_dir, exp_id)
 
 # val_gen = TrainingGenerator(reader=kitti, frame_ids=val_ids, batch_size=1,
 #                               pc_encoder=pc_encoder, target_encoder=target_encoder,

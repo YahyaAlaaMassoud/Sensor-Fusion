@@ -8,7 +8,7 @@ import numpy as np
 from utils.point_cloud import compute_mask_accurate
 import random
 from core.transforms_3D import transform, rot_y_matrix, translation_matrix
-from core.boxes import translate_box_3D
+from core.boxes import translate_box_3D, get_corners_3D
 
 
 def per_box_dropout(dropout_ratio=0.1):
