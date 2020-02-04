@@ -115,8 +115,9 @@ def create_sep_conv_block(input_tensor, filters, kernel_size, num_layers):
   return Add()([x, last_input])
 
 def create_pixor_det(input_shape=(800, 700, 35), 
-                 kernel_regularizer=None,
-                 downsample_factor=4):
+                     kernel_regularizer=None,
+                     downsample_factor=4,
+                     reg_channels=8):
     '''
         This architecture key differences:
             
@@ -144,7 +145,7 @@ def create_pixor_det(input_shape=(800, 700, 35),
     OFFSET_CHANNELS  = 2
     SIZE_CHANNELS    = 2
     OUT_KERNEL_SIZE  = 1
-    REGRESS_CHANNELS = 6
+    REGRESS_CHANNELS = reg_channels
     BiFPN_filters = 128
     
     inp = Input(shape=input_shape)
@@ -199,6 +200,8 @@ def create_pixor_det(input_shape=(800, 700, 35),
 
     # print(block1_out.shape, block2_out.shape, block3_out.shape, block4_out.shape)
     out2, out3, out4 = block2_out, block3_out, block4_out
+    out2, out3, out4 = build_BiFPN(out2, out3, out4, filters=BiFPN_filters)
+    out2, out3, out4 = build_BiFPN(out2, out3, out4, filters=BiFPN_filters)
     out2, out3, out4 = build_BiFPN(out2, out3, out4, filters=BiFPN_filters)
     out2, out3, out4 = build_BiFPN(out2, out3, out4, filters=BiFPN_filters)
     out2, out3, out4 = build_BiFPN(out2, out3, out4, filters=BiFPN_filters)
