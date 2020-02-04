@@ -1,13 +1,14 @@
 
+import os
 import numpy as np
+import deepdish as dd
 
 from datasets.kitti import ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY
-from models.pixor_pp import create_pixor_pp
 from models.pixor_det import create_pixor_det, BiFPN
 from pixor_utils.losses import pixor_loss, binary_focal_loss_metric, smooth_L1_metric
 from pixor_targets import PIXORTargets
 from pixor_utils.pointcloud_encoder import OccupancyCuboid
-from tensorflow.keras.optimizers import Adam, Adamax
+from tensorflow.keras.optimizers import Adam, Adamax, SGD, RMSprop
 
 configs = {
     'dataset_path': '/home/salam/datasets/KITTI/training', # absolute path
@@ -33,7 +34,8 @@ configs = {
                              0.33837482]),
     'mean_height': 1.52,
     'mean_altitude': 1.71,
-    'ckpts_dir': 'ckpts_biFPN_car',
+    'stats': dd.io.load('kitti_stats/stats.h5'),
+    'ckpts_dir': 'ckpts_biFPN_car_noRelu_conv_aug_',
     'training_target': CARS_ONLY, # on of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
     'model_fn': create_pixor_det,
     'losses': {
@@ -42,13 +44,15 @@ configs = {
     'metrics': {
         'output_map': [smooth_L1_metric, binary_focal_loss_metric],
     },
+    'callbacks': [],
     'optimizer': Adam,
-    'experiment_name': '/pixor_bifpn_car_',
-    'start_epoch': 4,
-    'use_pretrained': True,
-    'last_ckpt_json': 'outputs/ckpts_biFPN_car/pixor_bifpn_car__epoch_3.json', # absolute path
-    'last_ckpt_h5': 'outputs/ckpts_biFPN_car/pixor_bifpn_car__epoch_3.h5', # absolute path
+    'experiment_name': '/pixor_bifpn_car_noRelu_conv_aug_',
+    'start_epoch': 0,
+    'use_pretrained': False,
+    'last_ckpt_json': 'outputs/ckpts_biFPN_car_noRelu_conv_aug_/pixor_bifpn_car_noRelu_conv_aug__epoch_3.json', # absolute path
+    'last_ckpt_h5': 'outputs/ckpts_biFPN_car_noRelu_conv_aug_/pixor_bifpn_car_noRelu_conv_aug__epoch_3.h5', # absolute path
     'custom_objects': {'BiFPN': BiFPN}, # Dict as {'BiFPN': BiFPN}
+    'current_file_name': __file__,
     
     'hyperparams': {
         'batch_size': 1,
@@ -59,5 +63,6 @@ configs = {
         'validate_every': 1,
         'ckpt_every': 1,
         'n_val_samples': 300,
+        'map_every': 5000,
     }
 }
