@@ -26,12 +26,10 @@ DS_DIR = os.path.expanduser(configs['dataset_path'])
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = configs["gpu_id"]
 
-# np.random.seed(0)
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-# tf.config.experimental.set_memory_growth(tf.config.experimental.list_physical_devices('GPU')[0], False)
 device_name = tf.test.gpu_device_name()
 os.system('clear')
 print('Conncted to Device:', device_name)
@@ -117,15 +115,6 @@ val_steps   = 0
 train_steps = 0
 lr_steps    = 0
 cur_lr = LEARNING_RATE
-
-def schedule(epoch):
-    if epoch == 1:
-        lr = 0.00001
-    elif epoch <= 3:
-        lr = 0.001
-    else:
-        lr = 0.0001
-    return lr
 
 for cur_epoch in range(1, EPOCHS):
     with experiment.experiment.train():
