@@ -22,14 +22,13 @@ class OccupancyCuboid:
 
         occupancy_grid = np.zeros(shape=self.get_output_shape(), dtype=np.float32)
 
-        # ones = []
-        # for i in iz:
-        #     arr = np.zeros((self.cube_depth))
-        #     arr[i:] = 1.
-        #     ones.append(arr)
-        # ones = np.array(ones)
-        # occupancy_grid[iy, ix] = ones
-        occupancy_grid[iy, ix, iz] = 1.
+        ones = []
+        for i in iz:
+            arr = np.zeros((self.cube_depth))
+            arr[i:] = 1.
+            ones.append(arr)
+        occupancy_grid[iy, ix] = np.array(ones)
+        # occupancy_grid[iy, ix, iz] = 1.
         
         return occupancy_grid
 
