@@ -50,13 +50,14 @@ class Training_Generator_Thread(threading.Thread):
             # Output
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
             
-            aug_fn = np.random.choice(self.augmentations)
-            if aug_fn is not None:
-                (pts, reflectance), gt_boxes_3D = aug_fn((pts, reflectance), gt_boxes_3D)
-                pts, reflectance = box_filter(pts, ((-40, 40), (-1, 2.5), (0, 70)), decorations=reflectance)
-                
-                batch['encoded_pcs'][i] = self.pc_encoder.encode(pts.T, reflectance)
-                batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
+            if self.augmentations is not None:
+                aug_fn = np.random.choice(self.augmentations)
+                if aug_fn is not None:
+                    (pts, reflectance), gt_boxes_3D = aug_fn((pts, reflectance), gt_boxes_3D)
+                    pts, reflectance = box_filter(pts, ((-40, 40), (-1, 2.5), (0, 70)), decorations=reflectance)
+                    
+            batch['encoded_pcs'][i] = self.pc_encoder.encode(pts.T, reflectance)
+            batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
                 
         # end = timeit.default_timer()
         # print('adding batch took {0}', end-start)
