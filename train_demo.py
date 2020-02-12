@@ -30,8 +30,8 @@ os.environ["CUDA_VISIBLE_DEVICES"] = configs["gpu_id"]
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
-from tensorflow.keras.callbacks import ReduceLROnPlateau
 
+# tf.config.experimental.set_memory_growth(tf.config.experimental.list_physical_devices('GPU')[0], False)
 device_name = tf.test.gpu_device_name()
 os.system('clear')
 print('Conncted to Device:', device_name)
@@ -44,9 +44,6 @@ INPUT_SHAPE = configs['input_shape']
 
 # Target Encoder
 TARGET_SHAPE = configs['target_shape']
-TARGET_MEANS = configs['target_means']#np.array([-6.4501972e-03, 2.1161055e-02, -2.8581850e-02, -9.2645199e-04, 5.5109012e-01, 1.4958924e+00])
-TARGET_STDS = configs['target_stds']#np.array([0.4555288, 0.8899461, 1.4819515, 0.76802343, 0.16860875, 0.33837482])
-MEAN_HEIGHT, MEAN_ALTITUDE = configs['mean_height'], configs['mean_altitude']#1.52, 1.71
 
 # Training
 BATCH_SIZE = configs['hyperparams']['batch_size']
@@ -58,9 +55,8 @@ MAX_Q_SIZE = configs['hyperparams']['max_q_size']
 # Create dirs
 OUTPUTS_DIR = os.path.join('outputs')
 CKPTS_DIR   = os.path.join(OUTPUTS_DIR, configs['ckpts_dir'])
-# LOG_DIR     = os.path.join(CKPTS_DIR, configs['experiment_name'][1:] + datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
 
-for d in [OUTPUTS_DIR, CKPTS_DIR]:#, LOG_DIR]:
+for d in [OUTPUTS_DIR, CKPTS_DIR]:
     print("Creating directory: " + d)
     os.makedirs(d, exist_ok=True)
 
@@ -72,9 +68,8 @@ micro_ids = kitti.get_ids('micro')
 
 pc_encoder = configs['pc_encoder'](shape=INPUT_SHAPE, P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
 
-target_encoder = configs['target_encoder'](shape=TARGET_SHAPE,
-                                            stats=configs['stats'],
-                                            P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
+target_encoder = configs['target_encoder'](shape=TARGET_SHAPE, stats=configs['stats'],
+                                           P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
 
 pprint.pprint(configs['stats'])
 
@@ -88,6 +83,9 @@ pts, _ = kitti.get_velo(test_id, use_fov_filter=False)
 test_pc_encoder(pc_encoder, pts.T)
 boxes = kitti.get_boxes_3D(test_id)
 test_target_encoder(target_encoder, boxes)
+#--------------------------------------#
+#-----------RUN UNIT TESTS-------------#
+#--------------------------------------#
 
 if configs['use_pretrained'] is False:
     model = configs['model_fn']()
@@ -120,27 +118,14 @@ train_steps = 0
 lr_steps    = 0
 cur_lr = LEARNING_RATE
 
-def calc_lr(epoch, steps_per_epoch, min_lr, max_lr, cycle_length):
-    pass
-
 def schedule(epoch):
     if epoch == 1:
-        lr = 0.001
-    elif epoch <= 3:
-        lr = 0.0001
-    elif epoch <= 5:
-        lr = 0.001
-    elif epoch <= 35:
-        lr = 0.0001
-    else:
         lr = 0.00001
+    elif epoch <= 3:
+        lr = 0.001
+    else:
+        lr = 0.0001
     return lr
-    # if epoch < 20:
-    #     return 0.001
-    # elif epoch < 40:
-    #     return 0.01
-    # else:
-    #     return 0.0001
 
 for cur_epoch in range(1, EPOCHS):
     with experiment.experiment.train():
@@ -156,33 +141,32 @@ for cur_epoch in range(1, EPOCHS):
 
         print('Total number of batches is ->',train_gen.batch_count)
         
-        
         for batch_id in range(train_gen.batch_count):
             # Fetch batch
             batch = train_gen.get_batch()
             encoded_pcs, encoded_targets = batch['encoded_pcs'], batch['encoded_targets']
             
-            # if train_steps is not 0 and train_steps % (len(train_ids) // 4) == 0:
-            #     if cur_lr == 0.001:
-            #         print('changing to 0.0001')
-            #         cur_lr = 0.0001
-            #     else:
-            #         print('changing to 0.001')
-            #         cur_lr = 0.001
-            #     if cur_epoch > 5:
-            #         cur_lr = 0.0001
-            K.set_value(model.optimizer.lr, schedule(cur_epoch))
-            # print('cur epoch ->', cur_epoch, ' cur lr ->', model.optimizer.lr.numpy())
-            metrics = model.train_on_batch(x=encoded_pcs, y=encoded_targets, reset_metrics=True)
+            if configs['warmup']:
+                if train_steps is not 0 and train_steps % (train_gen.batch_count // 4) == 0:
+                    if cur_lr == 0.001:
+                        print('changing to 0.0001')
+                        cur_lr = 0.0001
+                    else:
+                        print('changing to 0.001')
+                        cur_lr = 0.001
+                    if cur_epoch > 3:
+                        cur_lr = 0.0001
+                K.set_value(model.optimizer.lr, cur_lr)
 
+            # start = timeit.default_timer()
+            metrics = model.train_on_batch(x=encoded_pcs, y=encoded_targets, reset_metrics=False)
+            # print('train_on_batch took {0}'.format(timeit.default_timer() - start))
+            
             for metric_name, metric_val in zip(model.metrics_names, metrics):
                 experiment.log_metric(metric_name, metric_val, train_steps)
 
             experiment.log_metric('lr', model.optimizer.lr.numpy(), train_steps)
-
             train_steps += 1
-
-            # del encoded_pcs, encoded_targets
 
             if batch_id > cur_progress:
                 print('Processed {0} train samples in {1}'.format(cur_progress, (timeit.default_timer() - start) // 60))
@@ -234,7 +218,7 @@ for cur_epoch in range(1, EPOCHS):
                 del encoded_pcs, encoded_targets
 
                 if batch_id > cur_progress:
-                    print('Processed {0} train samples in {1}'.format(cur_progress, (timeit.default_timer() - start) // 60))
+                    print('Processed {0} batches in {1}'.format(cur_progress, (timeit.default_timer() - start) // 60))
                     cur_progress += progress
 
             val_gen.stop()
