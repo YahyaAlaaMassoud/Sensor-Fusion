@@ -22,12 +22,12 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
         frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
         outmap = np.squeeze(model.predict_on_batch(encoded_pcs).numpy())
         decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.05)
-        decoded_boxes = nms_bev(decoded_boxes, iou_thresh=0.1, max_boxes=10000, min_hit=0, axis_aligned=False)
+        decoded_boxes = nms_bev(decoded_boxes, iou_thresh=0.1, max_boxes=500, min_hit=0, axis_aligned=False)
         lines = boxes_to_pred_str(decoded_boxes, kitti_reader.get_calib(frames[0])[2])
         with open(os.path.join(exp_path, frames[0] + '.txt'), 'w') as txt:
             if len(decoded_boxes) > 0:
                 txt.writelines(lines)
-        if batch_id is not 0 and batch_id % 200 is 0:
+        if batch_id is not 0 and batch_id % 2 is 0:
             print('Finished predicting {0} frames...'.format(batch_id))
         
     val_gen.stop()

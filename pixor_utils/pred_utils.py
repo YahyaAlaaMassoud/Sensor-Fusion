@@ -7,8 +7,9 @@ def boxes_to_pred_str(boxes_3D, P):
     lines = []
     for box_3D in boxes_3D:
         box_2D = project_box_3D(box_3D, P)
+        alpha = -np.arctan2(box_3D.x, box_3D.z) + box_3D.yaw
         lines += [
-            f"{box_3D.cls} -1 -1 0 {box_2D.x1} {box_2D.y1} {box_2D.x2} {box_2D.y2} {box_3D.h} {box_3D.w} {box_3D.l} {box_3D.x} {box_3D.y} {box_3D.z} {box_3D.yaw} {box_3D.confidence}\n"
+            f"{box_3D.cls} -1 -1 {alpha} {box_2D.x1} {box_2D.y1} {box_2D.x2} {box_2D.y2} {box_3D.h} {box_3D.w} {box_3D.l} {box_3D.x} {box_3D.y} {box_3D.z} {box_3D.yaw} {box_3D.confidence}\n"
         ]
     return lines
 

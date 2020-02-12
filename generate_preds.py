@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import timeit
+import deepdish as dd
 
 DS_DIR = os.path.expanduser('/home/salam/datasets/KITTI/training')
 
@@ -63,8 +64,7 @@ micro_ids = kitti.get_ids('micro')
 
 pc_encoder     = OccupancyCuboid(shape=INPUT_SHAPE, P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
 target_encoder = PIXORTargets(shape=TARGET_SHAPE,
-                               target_means=TARGET_MEANS, target_stds=TARGET_STDS,
-                               mean_height=MEAN_HEIGHT, mean_altitude=MEAN_ALTITUDE,
+                               stats=dd.io.load('kitti_stats/stats.h5'),
                                P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
 
 #--------------------------------------#
@@ -84,81 +84,37 @@ test_pc_encoder(pc_encoder, pts.T)
 boxes = kitti.get_boxes_3D(test_id)
 test_target_encoder(target_encoder, boxes)
 
-# for i in range(80, 82):
-epoch = 40
-chkpt_dir  = 'outputs/ckpts_biFPN_car_noRelu_conv_/'
-exp_id     = 'bifpn_car_noRelu_conv'
-chkpt_json = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.json'.format(epoch)
-chkpt_h5   = chkpt_dir + 'pixor_bifpn_car_noRelu_conv__epoch_{0}.h5'.format(epoch)
-exp_name   = exp_id + '_{0}/data/'.format(epoch)
 
-# Create dirs
-# EXP_DIR = os.path.join(exp_name)
+for i in [10]:
+  epoch = i
+  chkpt_dir  = 'outputs/ckpts_ped_3bifpn_head3Conv_concat_aug_abs/'
+  exp_id     = 'pixor_pp_3bifpn_aug_abs_concat_ped'
+  chkpt_json = chkpt_dir + 'pixor_3bifpn_head3Conv_ped_concat_aug_abs_epoch_{0}.json'.format(epoch)
+  chkpt_h5   = chkpt_dir + 'pixor_3bifpn_head3Conv_ped_concat_aug_abs_epoch_{0}.h5'.format(epoch)
+  exp_name   = exp_id + '_{0}/data/'.format(epoch)
 
-# print("Creating directory: " + EXP_DIR)
-# os.makedirs(EXP_DIR, exist_ok=True)
+  # # Create dirs
+  # # EXP_DIR = os.path.join(exp_name)
 
-trained_model = load_model(chkpt_json, chkpt_h5, {'BiFPN': BiFPN})
-optimizer = Adam(lr=LEARNING_RATE)
-losses = {
-            'output_map': pixor_loss
-          }
-metrics = {
-            'output_map': [smooth_L1_metric, binary_focal_loss_metric]
-          }
-trained_model.compile(optimizer=optimizer,
-                      loss=losses,
-                      metrics=metrics)
+  # # print("Creating directory: " + EXP_DIR)
+  # # os.makedirs(EXP_DIR, exist_ok=True)
 
-trained_model.summary()
+  trained_model = load_model(chkpt_json, chkpt_h5, {'BiFPN': BiFPN})
+  optimizer = Adam(lr=LEARNING_RATE)
+  losses = {
+              'output_map': pixor_loss
+            }
+  metrics = {
+              'output_map': [smooth_L1_metric, binary_focal_loss_metric]
+            }
 
-generate_preds(trained_model, kitti, pc_encoder, target_encoder, val_ids, epoch, chkpt_dir, exp_id)
+  for layer in trained_model.layers:
+      layer.trainable = False
 
-# val_gen = TrainingGenerator(reader=kitti, frame_ids=val_ids, batch_size=1,
-#                               pc_encoder=pc_encoder, target_encoder=target_encoder,
-#                               n_threads=NUM_THREADS, max_queue_size=MAX_Q_SIZE)
+  trained_model.compile(optimizer=optimizer,
+                        loss=losses,
+                        metrics=metrics)
 
-# val_gen.start()
+  trained_model.summary()
 
-# for batch_id in range(val_gen.batch_count):
-#   batch = val_gen.get_batch()
-#   frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
-#   encoded_targets = batch['encoded_targets']
-#   outmap = np.squeeze(trained_model.predict_on_batch(encoded_pcs).numpy())
-#   decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.5)
-#   decoded_boxes = nms_bev(decoded_boxes,
-#                           params['iou_threshold'],
-#                           params['max_boxes'],
-#                           params['min_hit'],
-#                           params['axis_aligned'])
-
-#   # # if len(decoded_boxes) > 2:
-#   # #   obj = np.squeeze(outmap[..., 0])
-#   # #   obj[obj >= 0.5] = 1.
-#   # #   obj[obj <  0.5] = 0.
-#   # #   tar = np.squeeze(encoded_targets[..., 0])
-#   # #   plt.imshow(obj, cmap='gray')
-#   # #   plt.savefig('{0}_obj'.format(frames[0]))
-#   # #   plt.imshow(tar, cmap='gray')
-#   # #   plt.savefig('{0}_tar'.format(frames[0]))
-#   # #   break
-#   # # else:
-#   boxes = target_encoder.decode(np.squeeze(encoded_targets), 0.5)
-#   boxes = nms_bev(boxes,
-#                   params['iou_threshold'],
-#                   params['max_boxes'],
-#                   params['min_hit'],
-#                   params['axis_aligned'])
-#   # for box in boxes:
-#   #   yaws.append(box.yaw)
-  
-#   # print('got', len(decoded_boxes), 'exp', len(boxes))
-
-#   lines = boxes_to_pred_str(decoded_boxes, kitti.get_calib(frames[0])[2])
-#   with open(os.path.join(exp_name, frames[0] + '.txt'), 'w') as txt:
-#         if len(decoded_boxes) > 0:
-#             txt.writelines(lines)
-#   print(frames[0], 'got',len(decoded_boxes), 'exp', len(boxes))
-  
-# val_gen.stop()
-
+  generate_preds(trained_model, kitti, pc_encoder, target_encoder, val_ids, epoch, chkpt_dir, exp_id)
