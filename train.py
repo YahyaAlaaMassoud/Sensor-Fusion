@@ -114,7 +114,7 @@ experiment = CometMLLogger()
 val_steps   = 0
 train_steps = 0
 lr_steps    = 0
-cur_lr = LEARNING_RATE
+cur_lr = configs['warmup_min']
 
 for cur_epoch in range(1, EPOCHS):
     with experiment.experiment.train():
@@ -137,14 +137,14 @@ for cur_epoch in range(1, EPOCHS):
             
             if configs['warmup']:
                 if train_steps is not 0 and train_steps % (train_gen.batch_count // 4) == 0:
-                    if cur_lr == 0.001:
+                    if cur_lr == configs['warmup_max']:
                         print('changing to 0.0001')
-                        cur_lr = 0.0001
+                        cur_lr = configs['warmup_min']
                     else:
                         print('changing to 0.001')
-                        cur_lr = 0.001
-                    if cur_epoch > 3:
-                        cur_lr = 0.0001
+                        cur_lr = configs['warmup_max']
+                    if cur_epoch > configs['warmup_epochs']:
+                        cur_lr = configs['warmup_min']
                 K.set_value(model.optimizer.lr, cur_lr)
 
             # start = timeit.default_timer()

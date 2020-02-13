@@ -3,7 +3,7 @@ import os
 import numpy as np
 import deepdish as dd
 
-from datasets.kitti import ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY
+from datasets.kitti import ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY, SMALL_OBJECTS
 from models.pixor_det import create_pixor_det, BiFPN
 from pixor_utils.losses import pixor_loss, binary_focal_loss_metric, smooth_L1_metric
 from pixor_targets import PIXORTargets
@@ -35,8 +35,8 @@ configs = {
     'mean_height': 1.52,
     'mean_altitude': 1.71,
     'stats': dd.io.load('kitti_stats/stats.h5'),
-    'ckpts_dir': 'ckpts_biFPN_car_noRelu_conv_aug_',
-    'training_target': CARS_ONLY, # on of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
+    'ckpts_dir': 'ckpts_ped_3bifpn_head3Conv_concat_aug_abs',
+    'training_target': PEDESTRIANS_ONLY, # one of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
     'model_fn': create_pixor_det,
     'losses': {
         'output_map': pixor_loss,
@@ -46,23 +46,29 @@ configs = {
     },
     'callbacks': [],
     'optimizer': Adam,
-    'experiment_name': '/pixor_bifpn_car_noRelu_conv_aug_',
-    'start_epoch': 0,
-    'use_pretrained': False,
-    'last_ckpt_json': 'outputs/ckpts_biFPN_car_noRelu_conv_aug_/pixor_bifpn_car_noRelu_conv_aug__epoch_3.json', # absolute path
-    'last_ckpt_h5': 'outputs/ckpts_biFPN_car_noRelu_conv_aug_/pixor_bifpn_car_noRelu_conv_aug__epoch_3.h5', # absolute path
+    'experiment_name': '/pixor_3bifpn_head3Conv_ped_concat_aug_abs',
+    'start_epoch': 11,
+    'use_pretrained': True,
+    'last_ckpt_json': 'outputs/ckpts_ped_3bifpn_head3Conv_concat_aug_abs/pixor_3bifpn_head3Conv_ped_concat_aug_abs_epoch_10.json', # absolute path
+    'last_ckpt_h5': 'outputs/ckpts_ped_3bifpn_head3Conv_concat_aug_abs/pixor_3bifpn_head3Conv_ped_concat_aug_abs_epoch_10.h5', # absolute path
     'custom_objects': {'BiFPN': BiFPN}, # Dict as {'BiFPN': BiFPN}
     'current_file_name': __file__,
+    'warmup': False,
+    'warmup_min': 0.0001,
+    'warmup_max': 0.001,
+    'warmup_epochs': 3,
     
     'hyperparams': {
-        'batch_size': 1,
+        'batch_size': 2,
         'lr': 0.0001,
         'epochs': 1000,
         'num_threads': 6,
         'max_q_size': 8,
-        'validate_every': 1,
+        'validate_every': 1000,
         'ckpt_every': 1,
         'n_val_samples': 300,
         'map_every': 5000,
-    }
+    },
+    
+    'notes': 'w/ augmentations | gamma=2.0 | point cloud encoder (points under points) | 3 bifpns | 104 channels bifpns | out1 concatenated with out of bifpns'
 }
