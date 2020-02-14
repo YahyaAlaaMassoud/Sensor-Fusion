@@ -63,7 +63,7 @@ train_ids = kitti.get_ids('train')
 val_ids = kitti.get_ids('val')
 micro_ids = kitti.get_ids('micro')
 
-pc_encoder = configs['pc_encoder'](shape=INPUT_SHAPE, P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
+pc_encoder = configs['pc_encoder'](x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1)
 
 target_encoder = configs['target_encoder'](shape=TARGET_SHAPE, stats=configs['stats'],
                                            P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
@@ -117,7 +117,7 @@ cur_lr = configs['warmup_min']
 
 for cur_epoch in range(1, EPOCHS):
     with experiment.experiment.train():
-        train_gen = TrainingGenerator(reader=kitti, frame_ids=train_ids, batch_size=BATCH_SIZE,
+        train_gen = TrainingGenerator(reader=kitti, frame_ids=train_ids[:12], batch_size=BATCH_SIZE,
                                       pc_encoder=pc_encoder, target_encoder=target_encoder, 
                                       n_threads=NUM_THREADS, max_queue_size=MAX_Q_SIZE)
 
