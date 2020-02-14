@@ -1,6 +1,5 @@
 
 from tensorflow.keras.models import model_from_json
-from tensorflow.keras.layers import SeparableConv2D, BatchNormalization, ReLU, Layer, Concatenate
 
 def save_model(model, save_dir, name, epoch):
     model_json = model.to_json()
