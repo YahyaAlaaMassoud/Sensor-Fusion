@@ -2,85 +2,71 @@
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-alpha, gamma = 0.25, 2.0#1.5
-# FL_ALPHA, FL_GAMMA = 0.75, 0.5
-
-def binary_focal_loss(y_true, y_pred):
-    # Get the cross_entropy for each entry
-    from_logits = False
+def binary_focal_loss(alpha, gamma, subsampling_flag):
     
-    ce = K.binary_crossentropy(y_true, y_pred, from_logits=from_logits)
-
-    # If logits are provided then convert the predictions into probabilities
-    if from_logits:
-        pred_prob = tf.sigmoid(y_pred)
-    else:
-        pred_prob = y_pred
-
-    p_t = (y_true * pred_prob) + ((1 - y_true) * (1 - pred_prob))
-    alpha_factor = 1.0
-    modulating_factor = 1.0
-
-    alpha_factor = (y_true * alpha + (1 - y_true) * (1 - alpha))
-
-    modulating_factor = tf.pow((1.0 - p_t), gamma)
-
-    # pt_cnt = tf.cast(tf.math.count_nonzero(y_true), tf.float32) + 1.0
-
-    # compute the final loss and return
-    # return tf.divide(K.sum(alpha_factor * modulating_factor * ce), pt_cnt)
-    # return tf.cond(tf.greater(pt_cnt, 0), lambda: tf.divide(loss, pt_cnt), lambda: loss)
-    return tf.reduce_sum(alpha_factor * modulating_factor * ce, axis=-1)
-
-def smooth_L1(y_true, y_pred):
-    diff = tf.abs(y_true - y_pred)
-    loss = tf.where(diff < 1, 0.5 * tf.square(diff), diff - 0.5)
-    return tf.reduce_mean(diff)
-
-def pixor_loss(y_true, y_pred):
-    # Split into cls and reg
-    y_true_cls, y_true_reg = y_true[:, :, :, 0], y_true[:, :, :, 1:]
-    y_pred_cls, y_pred_reg = y_pred[:, :, :, 0], y_pred[:, :, :, 1:]
-
-    # Classification Loss
-    obj_loss = binary_focal_loss(y_true_cls, y_pred_cls)
-
-    # Regression Loss
-    mask = tf.reshape(K.equal(y_true_cls, 1.0), shape=(-1,))
+    def compute_binary_focal_loss(y_true, y_pred):
+        y_true_cls       = y_true[:, :, :, 0]
+        subsampling_mask = 1.0
+        if subsampling_flag:
+            subsampling_mask = y_true[:, :, :, 1]
+        
+        ce = K.binary_crossentropy(y_true_cls, y_pred, from_logits=False)
+        
+        y_true_comp = (1 - y_true_cls)
+        y_pred_comp = (1 - y_pred)
+        
+        p_t = (y_true_cls * y_pred) + (y_true_comp * y_pred_comp)
+        
+        alpha_factor = (y_true_cls * alpha + (y_true_comp * (1 - alpha)))
+        
+        modulating_factor = tf.pow((1.0 - p_t), gamma)
+        
+        return tf.reduce_sum(alpha_factor * modulating_factor * ce * subsampling_mask, axis=-1)
     
-    y_true_reg_masked = tf.boolean_mask(tf.reshape(y_true_reg, shape=(-1, 8)), mask=mask, axis=0)
-    y_pred_reg_masked = tf.boolean_mask(tf.reshape(y_pred_reg, shape=(-1, 8)), mask=mask, axis=0)
-    geo_loss = smooth_L1(y_true_reg_masked, y_pred_reg_masked)
+    return compute_binary_focal_loss
 
-    # Remove Nan
-    geo_loss = tf.where(tf.math.is_nan(geo_loss), tf.zeros_like(geo_loss), geo_loss)
+def absolute_diff_loss(y_true, y_pred):
+    abs_diff = tf.abs(y_true - y_pred)
+    return tf.reduce_mean(abs_diff)
+
+def smooth_l1_loss(weight):
     
-    total_loss = obj_loss + geo_loss
+    def compute_smooth_l1_loss(y_true, y_pred):
+        abs_diff  = tf.abs(y_true - y_pred)
+        smooth_l1 = tf.where(abs_diff < 1, 0.5 * tf.square(abs_diff), abs_diff - 0.5)
+        return weight * tf.reduce_mean(smooth_l1)
     
-    return total_loss
+    return compute_smooth_l1_loss
 
-
-
-def binary_focal_loss_metric(y_true, y_pred):
-    y_true, y_pred = y_true[:, :, :, 0], y_pred[:, :, :, 0]
-    return binary_focal_loss(y_true, y_pred)
-
-def smooth_L1_metric(y_true, y_pred):
-    # Split into cls and reg
-    y_true_cls, y_true_reg = y_true[:, :, :, 0], y_true[:, :, :, 1:]
-    _         , y_pred_reg = y_pred[:, :, :, 0], y_pred[:, :, :, 1:]
-
-    # Classification Loss
-    # obj_loss = binary_focal_loss(y_true_cls, y_pred_cls)
-
-    # Regression Loss
-    mask = tf.reshape(K.equal(y_true_cls, 1.0), shape=(-1,))
+def total_loss(alpha, gamma, reg_channels, weight, subsampling_flag):
+    '''
+        erosion mask is expected to be the last channel in the output
+    '''
+    obj_loss_fn = binary_focal_loss(alpha, gamma, subsampling_flag)
+    reg_loss_fn = smooth_l1_loss(weight)
     
-    y_true_reg_masked = tf.boolean_mask(tf.reshape(y_true_reg, shape=(-1, 8)), mask=mask, axis=0)
-    y_pred_reg_masked = tf.boolean_mask(tf.reshape(y_pred_reg, shape=(-1, 8)), mask=mask, axis=0)
-    geo_loss = smooth_L1(y_true_reg_masked, y_pred_reg_masked)
+    def compute_total_loss(y_true, y_pred):
+        reg_start = 1
+        if subsampling_flag:
+            reg_start = 2
+            
+        y_true_cls, y_true_reg = y_true[:, :, :, :reg_start], y_true[:, :, :, reg_start:]
+        y_pred_cls, y_pred_reg = y_pred[:, :, :, 0], y_pred[:, :, :, 1:]
 
-    # Remove Nan
-    geo_loss = tf.where(tf.math.is_nan(geo_loss), tf.zeros_like(geo_loss), geo_loss)
+        # Objectness Loss
+        obj_loss = obj_loss_fn(y_true_cls, y_pred_cls)
+
+        # Regression Loss
+        mask = tf.reshape(tf.equal(y_true_cls[:, :, :, 0], 1.0), shape=(-1,))
+        y_true_reg_masked = tf.boolean_mask(tf.reshape(y_true_reg, shape=(-1, reg_channels)), 
+                                            mask=mask, 
+                                            axis=0)
+        y_pred_reg_masked = tf.boolean_mask(tf.reshape(y_pred_reg, shape=(-1, reg_channels)),
+                                            mask=mask,
+                                            axis=0)
+        reg_loss = reg_loss_fn(y_true_reg_masked, y_pred_reg_masked)
+        reg_loss = tf.where(tf.math.is_nan(reg_loss), tf.zeros_like(reg_loss), reg_loss)
+        
+        return obj_loss + reg_loss
     
-    return geo_loss
+    return compute_total_loss
