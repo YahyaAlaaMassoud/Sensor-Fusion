@@ -17,7 +17,6 @@ from datasets.kitti import KITTI
 from pixor_utils.model_utils import load_model, save_model
 from pixor_utils.training_gen import TrainingGenerator
 from pixor_utils.prediction_gen import PredictionGenerator
-from get_pred import generate_preds
 
 from test_utils.unittest import test_pc_encoder, test_target_encoder
 
@@ -166,55 +165,6 @@ for cur_epoch in range(1, EPOCHS):
         os.system('clear')
         print('Finished training the {0}-th epoch in {1}'.format(cur_epoch + 1 + configs['start_epoch'], (timeit.default_timer() - start) // 60))
         
-    if cur_epoch % configs['hyperparams']['map_every'] == 0 and cur_epoch is not 0:
-        generate_preds(model=model, kitti_reader=kitti, pc_encoder=pc_encoder, 
-                       target_encoder=target_encoder, frame_ids=val_ids,
-                       epoch=cur_epoch, ckpts_dir=CKPTS_DIR, exp_id=configs['experiment_name'][1:-1])
-        os.system('clear')
-        print('Got mAPs for you!')
-        print('-------------------------------------------')
-    
-    if cur_epoch % configs['hyperparams']['validate_every'] == 0 and cur_epoch is not 0:
-        with experiment.experiment.validate():
-            val_samples = configs['hyperparams']['n_val_samples']
-            val_samples = np.random.choice(val_ids, val_samples, replace=False)
-            val_gen = TrainingGenerator(reader=kitti, frame_ids=val_samples, batch_size=BATCH_SIZE,
-                                        pc_encoder=pc_encoder, target_encoder=target_encoder,
-                                        n_threads=NUM_THREADS, max_queue_size=MAX_Q_SIZE)
-            
-            val_gen.start()
-            start = timeit.default_timer()
-        
-            progress = train_gen.batch_count // 10
-            cur_progress = progress
-            
-            for batch_id in range(val_gen.batch_count):
-                # Fetch batch
-                batch = val_gen.get_batch()
-                encoded_pcs, encoded_targets = batch['encoded_pcs'], batch['encoded_targets']
-                predictions_map = model.predict_on_batch(x=encoded_pcs)
-                
-                total_loss = configs['losses']['output_map'](encoded_targets, predictions_map)
-                obj_loss   = configs['metrics']['output_map'][1](encoded_targets, predictions_map)
-                geo_loss   = configs['metrics']['output_map'][0](encoded_targets, predictions_map)
-
-                experiment.log_metric('total_loss', total_loss, val_steps)
-                experiment.log_metric('obj_loss', obj_loss, val_steps)
-                experiment.log_metric('geo_loss', geo_loss, val_steps)
-                
-                val_steps += 1
-
-                del encoded_pcs, encoded_targets
-
-                if batch_id > cur_progress:
-                    print('Processed {0} batches in {1}'.format(cur_progress, (timeit.default_timer() - start) // 60))
-                    cur_progress += progress
-
-            val_gen.stop()
-            
-            os.system('clear')
-            print('Finished validating the {0}-th epoch in {1}'.format(cur_epoch + 1 + configs['start_epoch'], (timeit.default_timer() - start) // 60))
-            
     if cur_epoch % configs['hyperparams']['ckpt_every'] == 0 and cur_epoch is not 0:
         print('Saving current checkpoint...')
         save_model(model, CKPTS_DIR, configs['experiment_name'], cur_epoch + configs['start_epoch'])
