@@ -14,9 +14,11 @@ def objectness_metric(alpha, gamma, subsampling_flag):
     
     return compute_objectness_metric
 
-def regression_metric(reg_channels, weight, subsampling_flag):
+def regression_metric(reg_loss_name, reg_channels, weight, subsampling_flag):
     
     reg_loss_fn = smooth_l1_loss(weight)
+    if reg_loss_name == 'abs':
+        reg_loss_fn = absolute_diff_loss
     
     def compute_regression_metric(y_true, y_pred):
         reg_start = 1

@@ -12,12 +12,12 @@ def binary_focal_loss(alpha, gamma, subsampling_flag):
         
         ce = K.binary_crossentropy(y_true_cls, y_pred, from_logits=False)
         
-        y_true_comp = (1 - y_true_cls)
-        y_pred_comp = (1 - y_pred)
+        y_true_comp = (1.0 - y_true_cls)
+        y_pred_comp = (1.0 - y_pred)
         
         p_t = (y_true_cls * y_pred) + (y_true_comp * y_pred_comp)
         
-        alpha_factor = (y_true_cls * alpha + (y_true_comp * (1 - alpha)))
+        alpha_factor = (y_true_cls * alpha + (y_true_comp * (1.0 - alpha)))
         
         modulating_factor = tf.pow((1.0 - p_t), gamma)
         
@@ -38,12 +38,15 @@ def smooth_l1_loss(weight):
     
     return compute_smooth_l1_loss
 
-def total_loss(alpha, gamma, reg_channels, weight, subsampling_flag):
+def total_loss(alpha, gamma, reg_loss_name, reg_channels, weight, subsampling_flag):
     '''
         erosion mask is expected to be the last channel in the output
     '''
     obj_loss_fn = binary_focal_loss(alpha, gamma, subsampling_flag)
+    
     reg_loss_fn = smooth_l1_loss(weight)
+    if reg_loss_name == 'abs':
+        reg_loss_fn = absolute_diff_loss
     
     def compute_total_loss(y_true, y_pred):
         reg_start = 1
