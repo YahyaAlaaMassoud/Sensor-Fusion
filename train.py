@@ -15,8 +15,7 @@ import pprint
 from datetime import datetime
 from datasets.kitti import KITTI
 from pixor_utils.model_utils import load_model, save_model
-from pixor_utils.training_gen import TrainingGenerator
-from pixor_utils.prediction_gen import PredictionGenerator
+from data_utils.training_gen import TrainingGenerator
 
 from test_utils.unittest import test_pc_encoder, test_target_encoder
 
@@ -117,7 +116,7 @@ cur_lr = configs['warmup_min']
 
 for cur_epoch in range(1, EPOCHS):
     with experiment.experiment.train():
-        train_gen = TrainingGenerator(reader=kitti, frame_ids=train_ids[:12], batch_size=BATCH_SIZE,
+        train_gen = TrainingGenerator(reader=kitti, frame_ids=train_ids, batch_size=BATCH_SIZE,
                                       pc_encoder=pc_encoder, target_encoder=target_encoder, 
                                       n_threads=NUM_THREADS, max_queue_size=MAX_Q_SIZE)
 
@@ -146,9 +145,9 @@ for cur_epoch in range(1, EPOCHS):
                         cur_lr = configs['warmup_min']
                 K.set_value(model.optimizer.lr, cur_lr)
 
-            # start = timeit.default_timer()
+            start = timeit.default_timer()
             metrics = model.train_on_batch(x=encoded_pcs, y=encoded_targets, reset_metrics=False)
-            # print('train_on_batch took {0}'.format(timeit.default_timer() - start))
+            print('train_on_batch took {0}'.format(timeit.default_timer() - start))
             
             for metric_name, metric_val in zip(model.metrics_names, metrics):
                 experiment.log_metric(metric_name, metric_val, train_steps)
