@@ -55,6 +55,9 @@ class Box3D:
             H = np.dot(translation_matrix(self.x, self.y, self.z), rot_y_matrix(self.yaw))
             self.__corners = transform(H, self.__corners)
         return self.__corners
+    
+    def get_bev_box(self):
+        return self.get_corners()[(0, 2), :4]
 
     def get_arrow_pts(self):
         if self.__arrow_pts is None:
