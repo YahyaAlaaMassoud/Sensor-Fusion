@@ -1,5 +1,6 @@
 
 import numpy as np
+
 from shapely.geometry import Polygon
 
 def iou_bev(axis_aligned=False):
@@ -23,6 +24,7 @@ def iou_bev(axis_aligned=False):
             box_1 = Polygon(box_1.get_corners().T[0:4, [2, 0]])
             box_2 = Polygon(box_2.get_corners().T[0:4, [2, 0]])
             iou = box_1.intersection(box_2).area / box_1.union(box_2).area
+        return iou
         
     return compute_iou_bev
 
@@ -63,8 +65,3 @@ def nms_bev(nms_type, thresh, max_boxes=100, min_hit=0, axis_aligned=False):
         return filtered_boxes
     
     return nms
-
-        
-    
-    
-         
