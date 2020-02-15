@@ -1,6 +1,7 @@
 
 import numpy as np
 import random
+import copy
 
 class PointCloudAugmenter:
     @staticmethod
@@ -28,7 +29,7 @@ class PointCloudAugmenter:
                 raise ValueError('Invalid Yaw!')
 
     @staticmethod
-    def filter_boxes(gt_boxes_3d, pts, reflectance, min_num_points=5):
+    def filter_boxes(gt_boxes_3d, pts, reflectance=None, min_num_points=5):
         list_bb = []
         for bb in gt_boxes_3d:
             inds = PointCloudAugmenter.find_containing_points(bb, pts)
@@ -47,7 +48,7 @@ class PointCloudAugmenter:
     @staticmethod
     def cut_flip_stitch():
         
-        def __cut_flip_stitch(gt_boxes_3d, pts, reflectance):
+        def __cut_flip_stitch(gt_boxes_3d, pts, reflectance=None):
             if len(gt_boxes_3d) < 2:
                 return pts, gt_boxes_3d, reflectance
 
@@ -89,18 +90,21 @@ class PointCloudAugmenter:
                 d = PointCloudAugmenter.find_point_side(pts[:, 2], pts[:, 0], point_a, point_b)
                 if random.uniform(0, 1) < 0.5:
                     pts_keep = pts[d == 1, :].copy()
-                    reflectance_keep = reflectance[d == 1, ...].copy()
-                    box_3d_flipped = [box.clone() for box in list_box_side_label_pos]
+                    if reflectance:
+                        reflectance_keep = reflectance[d == 1, ...].copy()
+                    box_3d_flipped = [copy.deepcopy(box) for box in list_box_side_label_pos]
                     box_3d_keep = list_box_side_label_pos
                 else:
                     pts_keep = pts[d == -1, :].copy()
-                    reflectance_keep = reflectance[d == -1, ...].copy()
-                    box_3d_flipped = [box.clone() for box in list_box_side_label_neg]
+                    if reflectance:
+                        reflectance_keep = reflectance[d == -1, ...].copy()
+                    box_3d_flipped = [copy.deepcopy(box) for box in list_box_side_label_neg]
                     box_3d_keep = list_box_side_label_neg
 
                 pts_flipped, box_3d_flipped, _ = PointCloudAugmenter.flip_along_x()(box_3d_flipped, pts_keep.copy(), reflectance)
                 pts_flipped, box_3d_flipped, _ = PointCloudAugmenter.rotate_translate(rotation=2*theta, translation=0)(box_3d_flipped, pts_flipped, reflectance)
-                reflectance_flipped = reflectance_keep.copy()
+                if reflectance:
+                    reflectance_flipped = reflectance_keep.copy()
 
                 for box in box_3d_flipped:
                     corners = box.get_bev_box()
@@ -111,9 +115,10 @@ class PointCloudAugmenter:
 
                 # box_3d_keep.extend(box_3d_flipped)
                 pts_res = np.concatenate([pts_keep, pts_flipped], 0)
-                reflectance_res = np.concatenate([reflectance_keep, reflectance_flipped], 0)
+                if reflectance:
+                    reflectance = np.concatenate([reflectance_keep, reflectance_flipped], 0)
 
-                return pts_res, box_3d_keep, reflectance_res
+                return pts_res, box_3d_keep, reflectance
             else:
                 return pts, gt_boxes_3d, reflectance
             
@@ -135,7 +140,7 @@ class PointCloudAugmenter:
     @staticmethod
     def global_background_dropout(dropout_ratio=0.1):
         
-        def __global_background_dropout(gt_boxes_3d, pts, reflectance):
+        def __global_background_dropout(gt_boxes_3d, pts, reflectance=None):
             inds = []
             for bb in gt_boxes_3d:
                 inds.extend(PointCloudAugmenter.find_containing_points(bb, pts))
@@ -148,7 +153,8 @@ class PointCloudAugmenter:
                 inds_to_keep.extend(inds)
 
                 pts = pts[inds_to_keep, ...]
-                reflectance = reflectance[inds_to_keep, ...]
+                if reflectance:
+                    reflectance = reflectance[inds_to_keep, ...]
 
             return pts, gt_boxes_3d, reflectance
         
@@ -157,7 +163,7 @@ class PointCloudAugmenter:
     @staticmethod
     def per_box_dropout(dropout_ratio=0.1):
         
-        def __per_box_dropout(gt_boxes_3d, pts, reflectance):
+        def __per_box_dropout(gt_boxes_3d, pts, reflectance=None):
             for bb in gt_boxes_3d:
                 inds = PointCloudAugmenter.find_containing_points(bb, pts)
 
@@ -169,7 +175,8 @@ class PointCloudAugmenter:
                     inds_to_keep = list(set(inds_to_keep).difference(set(inds_to_remove)))
 
                     pts = pts[inds_to_keep, ...]
-                    reflectance = reflectance[inds_to_keep, ...]
+                    if reflectance:
+                        reflectance = reflectance[inds_to_keep, ...]
 
             return pts, gt_boxes_3d, reflectance
         
@@ -178,7 +185,7 @@ class PointCloudAugmenter:
     @staticmethod
     def per_box_rotation_translation(rotation_range, translation_range):
         
-        def __per_box_rotation_translation(gt_boxes_3d, pts, reflectance):
+        def __per_box_rotation_translation(gt_boxes_3d, pts, reflectance=None):
             for bb in gt_boxes_3d:
                 inds = PointCloudAugmenter.find_containing_points(bb, pts)
 
@@ -223,7 +230,7 @@ class PointCloudAugmenter:
     @staticmethod
     def flip_along_x():
         
-        def __flip_along_x(gt_boxes_3d, pts, reflectance):
+        def __flip_along_x(gt_boxes_3d, pts, reflectance=None):
             pts[:, 0] = -pts[:, 0]
             for bb in gt_boxes_3d:
                 bb.x *= -1
@@ -253,7 +260,7 @@ class PointCloudAugmenter:
     @staticmethod
     def rotate_translate(rotation_range=np.pi / 20, translation_range=0.25, rotation=None, translation=None):
         
-        def __rotate_translate(gt_boxes_3d, pts, reflectance):
+        def __rotate_translate(gt_boxes_3d, pts, reflectance=None):
             u = np.random.uniform
             r = u(-rotation_range, rotation_range)
             # t = [[np.random.randn()*translation_range, 0, np.random.randn()*translation_range]]
@@ -281,7 +288,7 @@ class PointCloudAugmenter:
     @staticmethod
     def scale():
         
-        def __scale(gt_boxes_3d, pts, reflectance):
+        def __scale(gt_boxes_3d, pts, reflectance=None):
             s = np.random.uniform(0.95, 1.05)
             pts[:, :3] = pts[:, :3] * s
             for bb in gt_boxes_3d:

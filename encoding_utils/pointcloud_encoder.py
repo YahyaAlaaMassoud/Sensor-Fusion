@@ -38,7 +38,7 @@ class PointCloudEncoder(ABC):
 class OccupancyCuboidKITTI(PointCloudEncoder):
     
     # Fully vectorized implementation
-    def encode(self, pts, reflectance, densify=False):
+    def encode(self, pts, reflectance=None, densify=False):
         
         ix = ((pts[:, 2] + (-1. * self.x_min)) * self.qf[0]).astype(np.int32)
         iy = ((pts[:, 0] + (-1. * self.y_min)) * self.qf[1]).astype(np.int32)
