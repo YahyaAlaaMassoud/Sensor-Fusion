@@ -12,7 +12,7 @@ from models.pixor_det import BiFPN
 from datasets.kitti import KITTI, ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY, SMALL_OBJECTS
 from encoding_utils.pointcloud_encoder import OccupancyCuboidKITTI
 from pixor_targets import PIXORTargets
-from pixor_utils.prediction_gen import PredictionGenerator
+from data_utils.prediction_gen import PredictionGenerator
 from pixor_utils.post_processing import nms_bev
 from pixor_utils.pred_utils import boxes_to_pred_str
 from test_utils.unittest import test_pc_encoder, test_target_encoder
@@ -38,7 +38,7 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
         frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
         outmap = np.squeeze(model.predict_on_batch(encoded_pcs).numpy())
         decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.05)
-        decoded_boxes = nms_bev('dist', 1)(decoded_boxes)
+        decoded_boxes = nms_bev('iou', 0.1, max_boxes=500)(decoded_boxes)
         lines = boxes_to_pred_str(decoded_boxes, kitti_reader.get_calib(frames[0])[2])
         with open(os.path.join(exp_path, frames[0] + '.txt'), 'w') as txt:
             if len(decoded_boxes) > 0:
@@ -134,11 +134,11 @@ def main():
     target_class = CARS_ONLY
     while True:
         chosen_class = customInput(in_type=str,
-                                   mssg="""car  -> evaluate on cars only\n
-                                         ped  -> evaluate on pedestrians only\n
-                                         vec  -> evaluate on all vehicle types (cars, vans, trucks)\n
-                                         sml  -> evaluate on all small objects (pedestrians, cyclists)\n
-                                         cycl -> evaluate on cyclists only\n""",
+                                   mssg="car  -> evaluate on cars only\n" + \
+                                        "ped  -> evaluate on pedestrians only\n" + \
+                                        "vec  -> evaluate on all vehicle types (cars, vans, trucks)\n" + \
+                                        "sml  -> evaluate on all small objects (pedestrians, cyclists)\n" + \
+                                        "cycl -> evaluate on cyclists only\n",
                                    err_mssg='Please enter valid input!')
         os.system('clear')    
         if chosen_class in ['car', 'ped', 'cycl', 'vec', 'sml']:
