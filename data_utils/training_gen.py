@@ -9,6 +9,8 @@ from .augmentation import PointCloudAugmenter
 from core.kitti import box_filter 
 from queue import Queue
 
+import matplotlib.pyplot as plt
+
 class Training_Generator_Thread(threading.Thread):
     def __init__(self, queue, max_queue_size, reader, frame_ids, batch_size, pc_encoder, target_encoder, verbose=False):
         super(Training_Generator_Thread, self).__init__()
@@ -30,7 +32,7 @@ class Training_Generator_Thread(threading.Thread):
         self.augmentations = [
                                 PointCloudAugmenter.per_box_dropout(0.1), 
                                 PointCloudAugmenter.flip_along_x(),
-                                PointCloudAugmenter.per_box_rotation_translation(rotation_range=(-1.57, 1.57), translation_range=((-2, 2), (-0.1, 0.1), (-2, 2))),
+                                PointCloudAugmenter.per_box_rotation_translation(rotation_range=1.57, translation_range=2),
                                 PointCloudAugmenter.scale(), 
                                 PointCloudAugmenter.rotate_translate(),
                                 PointCloudAugmenter.global_background_dropout(0.1),
@@ -49,22 +51,22 @@ class Training_Generator_Thread(threading.Thread):
 
         for i in range(len(selected_frame_ids)):
             # Input
-            pts, reflectance = self.reader.get_velo(selected_frame_ids[i], use_fov_filter=False)  # Load velo
+            pts, _ = self.reader.get_velo(selected_frame_ids[i], use_fov_filter=False)  # Load velo
             # Output
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
-            pts, gt_boxes_3D, reflectance = PointCloudAugmenter.filter_boxes(gt_boxes_3d=gt_boxes_3D, 
-                                                                             pts=pts,
-                                                                             reflectance=reflectance, 
-                                                                             min_num_points=5)
+
+            aug_flag = np.random.uniform()
+            if aug_flag > 0.5:
+                number_of_augs = np.random.randint(low=1, high=len(self.augmentations) // 2 + 1)
+                augs_ids       = np.random.choice(len(self.augmentations), 
+                                                  size=number_of_augs, 
+                                                  replace=False)
+                pts = pts.T
+                for id in augs_ids:
+                    pts, gt_boxes_3D, _ = self.augmentations[id](gt_boxes_3D, pts)
+                pts = box_filter(pts.T, ((-40, 40), (-1, 2.5), (0, 70)))
             
-            if self.augmentations is not None:
-                aug_fn = np.random.choice(self.augmentations)
-                if aug_fn is not None:
-                    # print(aug_fn.__name__)
-                    pts, gt_boxes_3D, reflectance = aug_fn(gt_boxes_3D, pts.T, reflectance.T)
-                    pts = box_filter(pts.T, ((-40, 40), (-1, 2.5), (0, 70)))
-            
-            batch['encoded_pcs'][i] = self.pc_encoder.encode(pts.T, reflectance)
+            batch['encoded_pcs'][i]     = self.pc_encoder.encode(pts.T, densify=False)
             batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
                 
         # end = timeit.default_timer()
@@ -109,9 +111,12 @@ class TrainingGenerator:
         for _ in range(20):
             for thread in self.threads:
                 if thread.queue.qsize() is not 0:
-                    batch = thread.queue.get(timeout=50)
-                    batch['queue_size'] = thread.queue.qsize()
-                    return batch
+                    try:
+                        batch = thread.queue.get(timeout=50)
+                        batch['queue_size'] = thread.queue.qsize()
+                        return batch
+                    except:
+                        continue
             time.sleep(3.)
         print('all Qs are empty')
 
