@@ -6,10 +6,11 @@ import deepdish as dd
 import numpy as np
 
 from pixor_utils.model_utils import load_model
-from pixor_utils.losses import pixor_loss, binary_focal_loss_metric, smooth_L1_metric
+from training_utils.losses import total_loss
+from training_utils.metrics import objectness_metric, regression_metric
 from models.pixor_det import BiFPN
 from datasets.kitti import KITTI, ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY, SMALL_OBJECTS
-from pixor_utils.pointcloud_encoder import OccupancyCuboid
+from encoding_utils.pointcloud_encoder import OccupancyCuboidKITTI
 from pixor_targets import PIXORTargets
 from pixor_utils.prediction_gen import PredictionGenerator
 from pixor_utils.post_processing import nms_bev
@@ -37,7 +38,7 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
         frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
         outmap = np.squeeze(model.predict_on_batch(encoded_pcs).numpy())
         decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.05)
-        decoded_boxes = nms_bev(decoded_boxes, iou_thresh=0.1, max_boxes=500, min_hit=0, axis_aligned=False)
+        decoded_boxes = nms_bev('dist', 1)(decoded_boxes)
         lines = boxes_to_pred_str(decoded_boxes, kitti_reader.get_calib(frames[0])[2])
         with open(os.path.join(exp_path, frames[0] + '.txt'), 'w') as txt:
             if len(decoded_boxes) > 0:
@@ -161,7 +162,7 @@ def main():
     train_ids = kitti.get_ids('train')
     val_ids = kitti.get_ids('val')
 
-    pc_encoder     = OccupancyCuboid(shape=INPUT_SHAPE, P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
+    pc_encoder     = OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1)
     target_encoder = PIXORTargets(shape=TARGET_SHAPE,
                                   stats=dd.io.load('kitti_stats/stats.h5'),
                                   P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
@@ -189,10 +190,11 @@ def main():
             model = load_model(val['json'], val['h5'], {'BiFPN': BiFPN})
             optimizer = Adam(lr=0.0001)
             losses = {
-                    'output_map': pixor_loss
+                    'output_map': total_loss(alpha=0.25, gamma=2.0, reg_loss_name='abs', reg_channels=8, weight=1.0, subsampling_flag=False)
                     }
             metrics = {
-                    'output_map': [smooth_L1_metric, binary_focal_loss_metric]
+                    'output_map': [objectness_metric(alpha=0.25, gamma=2.0, subsampling_flag=False),
+                                   regression_metric(reg_loss_name='abs', reg_channels=8, weight=1.0, subsampling_flag=False)],
                     }
 
             for layer in model.layers:
