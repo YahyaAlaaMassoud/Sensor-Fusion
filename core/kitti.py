@@ -9,7 +9,7 @@ import cv2
 
 from core.boxes import Box2D, Box3D
 from core.transforms_3D import transform, project
-from utils.point_cloud import fov_filter, box_filter
+from utils.point_cloud import fov_filter
 
 # Constants
 IMG_WIDTH, IMG_HEIGHT = 1242, 375
@@ -220,5 +220,5 @@ def box_filter(pts, box_lim, decorations=None):
             (pts[1] >= y_range[0]) & (pts[1] <= y_range[1]) &
             (pts[2] >= z_range[0]) & (pts[2] <= z_range[1]))
     pts = pts[:, mask]
-    return pts if decorations is None else pts, decorations[:, mask]
+    return pts
 
