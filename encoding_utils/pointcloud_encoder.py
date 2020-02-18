@@ -8,7 +8,9 @@ class PointCloudEncoder(ABC):
     def __init__(self, x_min, x_max,
                        y_min, y_max,
                        z_min, z_max,
-                       df):
+                       df, densify=False):
+        
+        self.densify = densify
         
         self.x_min, self.x_max = x_min, x_max
         self.y_min, self.y_max = y_min, y_max
@@ -38,7 +40,7 @@ class PointCloudEncoder(ABC):
 class OccupancyCuboidKITTI(PointCloudEncoder):
     
     # Fully vectorized implementation
-    def encode(self, pts, reflectance=None, densify=False):
+    def encode(self, pts, reflectance=None):
         
         ix = ((pts[:, 2] + (-1. * self.x_min)) * self.qf[0]).astype(np.int32)
         iy = ((pts[:, 0] + (-1. * self.y_min)) * self.qf[1]).astype(np.int32)
@@ -46,7 +48,7 @@ class OccupancyCuboidKITTI(PointCloudEncoder):
 
         occupancy_grid = np.zeros(shape=self.get_output_shape(), dtype=np.float32)
 
-        if densify:
+        if self.densify:
             ones = []
             for i in iz:
                 arr = np.zeros((self.cube_height))
