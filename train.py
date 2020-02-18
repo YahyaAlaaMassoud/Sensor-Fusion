@@ -1,7 +1,7 @@
 
 from pixor_utils.comet_ml import CometMLLogger
 
-from car_config import configs
+from config import configs
 # from ped_config import configs
 
 import os
@@ -62,7 +62,7 @@ train_ids = kitti.get_ids('train')
 val_ids = kitti.get_ids('val')
 micro_ids = kitti.get_ids('micro')
 
-pc_encoder = configs['pc_encoder'](x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1)
+pc_encoder = configs['pc_encoder'](x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1, densify=True)
 
 target_encoder = configs['target_encoder'](shape=TARGET_SHAPE, stats=configs['stats'],
                                            P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
@@ -145,14 +145,14 @@ for cur_epoch in range(1, EPOCHS):
                         cur_lr = configs['warmup_min']
                 K.set_value(model.optimizer.lr, cur_lr)
 
-            start = timeit.default_timer()
+            # start = timeit.default_timer()
             metrics = model.train_on_batch(x=encoded_pcs, y=encoded_targets, reset_metrics=False)
-            print('train_on_batch took {0}'.format(timeit.default_timer() - start))
+            # print('train_on_batch took {0}'.format(timeit.default_timer() - start))
             
             for metric_name, metric_val in zip(model.metrics_names, metrics):
                 experiment.log_metric(metric_name, metric_val, train_steps)
 
-            experiment.log_metric('lr', model.optimizer.lr.numpy(), train_steps)
+            # experiment.log_metric('lr', model.optimizer.lr.numpy(), train_steps)
             train_steps += 1
 
             if batch_id > cur_progress:
