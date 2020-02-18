@@ -17,7 +17,7 @@ def binary_focal_loss(alpha, gamma, subsampling_flag):
         
         p_t = (y_true_cls * y_pred) + (y_true_comp * y_pred_comp)
         
-        alpha_factor = (y_true_cls * alpha + (y_true_comp * (1.0 - alpha)))
+        alpha_factor = (y_true_cls * alpha + y_true_comp * (1.0 - alpha))
         
         modulating_factor = tf.pow((1.0 - p_t), gamma)
         

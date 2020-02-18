@@ -31,7 +31,7 @@ def iou_bev(axis_aligned=False):
 def dist_bev(box_1, box_2):
     return - np.sqrt((box_1.x - box_2.x) ** 2 + (box_1.z - box_2.z) ** 2)
 
-def nms_bev(nms_type, thresh, max_boxes=100, min_hit=0, axis_aligned=False):
+def nms_bev(nms_type, thresh, max_boxes=100, min_hit=2, axis_aligned=False):
     if nms_type not in ['iou', 'dist']:
         return None
 
