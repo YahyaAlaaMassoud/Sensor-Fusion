@@ -5,6 +5,7 @@ import deepdish as dd
 
 from datasets.kitti import ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY, SMALL_OBJECTS
 from models.pixor_det import create_pixor_det, BiFPN
+from models.det_exp import create_new_det
 from training_utils.losses import total_loss, smooth_l1_loss, binary_focal_loss, absolute_diff_loss
 from training_utils.metrics import objectness_metric, regression_metric
 from pixor_targets import PIXORTargets
@@ -13,7 +14,7 @@ from tensorflow.keras.optimizers import Adam, Adamax, SGD, RMSprop
 
 configs = {
     'dataset_path': '/home/salam/datasets/KITTI/training', # absolute path
-    'gpu_id': '0', # zero-indexed (1-car | 0-ped) (7-car | 0-ped)
+    'gpu_id': '1', # zero-indexed (1-car | 0-ped) (7-car | 0-ped)
     'phy_width': 70,
     'phy_height': 80,
     'phy_depth': 3.5,
@@ -36,7 +37,7 @@ configs = {
     'mean_height': 1.52,
     'mean_altitude': 1.71,
     'stats': dd.io.load('kitti_stats/stats.h5'),
-    'ckpts_dir': 'car_bifpn_v2_concat_aug_abs',
+    'ckpts_dir': 'car_3bifpn_concat_aug_abs_densify',
     'training_target': CARS_ONLY, # one of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
     'model_fn': create_pixor_det,
     'losses': {
@@ -48,11 +49,11 @@ configs = {
     },
     'callbacks': [],
     'optimizer': Adam,
-    'experiment_name': '/car_bifpn_v2_concat_aug_abs',
+    'experiment_name': '/car_3bifpn_concat_aug_abs_densify',
     'start_epoch': 0,
     'use_pretrained': False,
-    'last_ckpt_json': 'outputs/car_bifpn_v2_concat_aug_abs/car_bifpn_v2_concat_aug_abs_epoch_29.json', # absolute path
-    'last_ckpt_h5': 'outputs/car_bifpn_v2_concat_aug_abs/car_bifpn_v2_concat_aug_abs_epoch_29.h5', # absolute path
+    'last_ckpt_json': 'outputs/car_bifpn_v2_add_branches/car_bifpn_v2_add_branches_epoch_28.json', # absolute path
+    'last_ckpt_h5': 'outputs/car_bifpn_v2_add_branches/car_bifpn_v2_add_branches_epoch_28.h5', # absolute path
     'custom_objects': {'BiFPN': BiFPN}, # Dict as {'BiFPN': BiFPN}
     'current_file_name': __file__,
     'warmup': True,
@@ -64,10 +65,10 @@ configs = {
         'batch_size': 2,
         'lr': 0.0001,
         'epochs': 1000,
-        'num_threads': 6,
-        'max_q_size': 8,
+        'num_threads': 8,
+        'max_q_size': 15,
         'validate_every': 1000,
-        'ckpt_every': 100,
+        'ckpt_every': 1,
         'n_val_samples': 300,
         'map_every': 5000,
     },
