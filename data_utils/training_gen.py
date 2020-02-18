@@ -29,10 +29,21 @@ class Training_Generator_Thread(threading.Thread):
         self.stop_flag = False
         self.batch_count = int(np.ceil(len(self.frame_ids) / self.batch_size))
         
-        self.augmentations = [
+        self.augmentations_dict = {
+            'per_box_dropout': PointCloudAugmenter.per_box_dropout(0.1),
+            'flip_along_x': PointCloudAugmenter.flip_along_x(),
+            'per_box_rot_trans': PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 20., translation_range=0.25),
+            'scale': PointCloudAugmenter.scale(),
+            'rotate': PointCloudAugmenter.rotate_translate(rotation=45. * np.pi / 180., translation=0),
+            'translate': PointCloudAugmenter.rotate_translate(rotation=0, translation=0.75),
+            'global_dropout': PointCloudAugmenter.global_background_dropout(0.1),
+            'cut_flip_stich': PointCloudAugmenter.cut_flip_stitch(),
+        }
+        
+        self.augmentations_arr = [
                                 PointCloudAugmenter.per_box_dropout(0.1), 
                                 PointCloudAugmenter.flip_along_x(),
-                                PointCloudAugmenter.per_box_rotation_translation(rotation_range=1.57, translation_range=2),
+                                PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 20., translation_range=0.25),
                                 PointCloudAugmenter.scale(), 
                                 PointCloudAugmenter.rotate_translate(),
                                 PointCloudAugmenter.global_background_dropout(0.1),
@@ -40,6 +51,38 @@ class Training_Generator_Thread(threading.Thread):
                              ]
         
         self.verbose = verbose
+        
+    def __rand_aug(self, pts, gt_boxes_3D, ref=None):
+        aug_flag = np.random.uniform()
+        if aug_flag > 0.5:
+            number_of_augs = np.random.randint(low=1, high=len(self.augmentations_arr) // 2 + 1)
+            augs_ids       = np.random.choice(len(self.augmentations_arr), 
+                                                size=number_of_augs, 
+                                                replace=False)
+            pts = pts.T
+            for id in augs_ids:
+                pts, gt_boxes_3D, _ = self.augmentations_arr[id](gt_boxes_3D, pts)
+            pts = box_filter(pts.T, ((-40, 40), (-1, 2.5), (0, 70)))
+        return pts, ref, gt_boxes_3D
+    
+    def __sequence_aug(self, pts, gt_boxes_3D, ref=None):
+        seq = [
+                ('per_box_rot_trans', 0), 
+                ('flip_along_x', 0.5),
+                ('rotate', 0),
+                ('scale', 0),
+                ('translate', 0),
+                ('global_dropout', 0.5)
+        ]
+        
+        aug_flag = np.random.uniform()        
+        if aug_flag > 0.15:
+            for aug, prob in seq:
+                if np.random.uniform() > prob:
+                    pts, gt_boxes_3D, _ = self.augmentations_dict[aug](gt_boxes_3D, pts)
+            pts = box_filter(pts, ((-40, 40), (-1, 2.5), (0, 70)))
+            
+        return pts, ref, gt_boxes_3D
 
     def add_batch(self):
         # Create a batch using current batch_id
@@ -55,18 +98,10 @@ class Training_Generator_Thread(threading.Thread):
             # Output
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
 
-            aug_flag = np.random.uniform()
-            if aug_flag > 0.5:
-                number_of_augs = np.random.randint(low=1, high=len(self.augmentations) // 2 + 1)
-                augs_ids       = np.random.choice(len(self.augmentations), 
-                                                  size=number_of_augs, 
-                                                  replace=False)
-                pts = pts.T
-                for id in augs_ids:
-                    pts, gt_boxes_3D, _ = self.augmentations[id](gt_boxes_3D, pts)
-                pts = box_filter(pts.T, ((-40, 40), (-1, 2.5), (0, 70)))
+            # pts, _, gt_boxes_3D = self.__rand_aug(pts, gt_boxes_3D)
+            pts, _, gt_boxes_3D = self.__sequence_aug(pts, gt_boxes_3D)
             
-            batch['encoded_pcs'][i]     = self.pc_encoder.encode(pts.T, densify=False)
+            batch['encoded_pcs'][i]     = self.pc_encoder.encode(pts.T)
             batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
                 
         # end = timeit.default_timer()
