@@ -47,6 +47,23 @@ class Box3D:
         self.__arrow_pts = None
 
     def get_corners(self):
+        '''
+            corners.T => (8, 3)
+            (0:4) -> top
+            (4:8) -> bottom
+            
+            axis 2: x
+            axis 0: y
+            axis 1: z
+            
+            (top,bottom)
+                 | 
+                 V
+            (1,5)----(2,6)
+              |        |
+              |        |
+            (0,4)----(3,7)
+        '''
         if self.__corners is None:
             # Compute corners
             self.__corners = np.array([[-self.l / 2, self.l / 2, self.l / 2, -self.l / 2, -self.l / 2, self.l / 2, self.l / 2, -self.l / 2],
@@ -55,9 +72,9 @@ class Box3D:
             H = np.dot(translation_matrix(self.x, self.y, self.z), rot_y_matrix(self.yaw))
             self.__corners = transform(H, self.__corners)
         return self.__corners
-    
+
     def get_bev_box(self):
-        return self.get_corners()[(0, 2), :4]
+        return self.get_corners()[(2, 0), :4]
 
     def get_arrow_pts(self):
         if self.__arrow_pts is None:
@@ -68,6 +85,15 @@ class Box3D:
             H = np.dot(translation_matrix(self.x, self.y, self.z), rot_y_matrix(self.yaw))
             self.__arrow_pts = transform(H, self.__arrow_pts)
         return self.__arrow_pts
+    
+    def get_bev_diags(self):
+        return self.get_bev_box().T[(0, 2),:], self.get_bev_box().T[(1, 3),:]
+    
+    def get_bev_center(self):
+        diag = self.get_bev_diags()[0]
+        x = (diag[0][0] + diag[1][0]) / 2.
+        y = (diag[0][1] + diag[1][1]) / 2.
+        return (x, y)
 
     def __str__(self):
         return "Center: (%.3f, %.3f, %.3f)   HWL: (%.3f, %.3f, %.3f)  YAW: %.3f" % (self.x, self.y, self.z, self.h, self.w, self.l, self.yaw)
