@@ -1,5 +1,5 @@
-import numpy as np
 
+import numpy as np
 
 def C2H(pts):
     return np.insert(pts, 2, values=1, axis=0)
@@ -12,6 +12,12 @@ def H2C(pts):
 def scale_matrix(dx, dy):
     return np.array([[dx, 0, 0],
                      [0, dy, 0],
+                     [0, 0, 1]], dtype=np.float32)
+
+
+def translation_matrix(dx, dy):
+    return np.array([[1, 0, dx],
+                     [0, 1, dy],
                      [0, 0, 1]], dtype=np.float32)
 
 
