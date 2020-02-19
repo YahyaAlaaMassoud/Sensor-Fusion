@@ -131,7 +131,7 @@ def get_velo(path, calib_path, workspace_lim=((-40, 40), (-1, 2.5), (0, 70)), us
     pts = transform(np.dot(R0, V2C), pts)
 
     # Remove points out of workspace
-    pts, reflectance = box_filter(pts, workspace_lim, decorations=reflectance)
+    pts = box_filter(pts, workspace_lim, decorations=reflectance)
 
     # Remove points not projecting onto the image plane
     if use_fov_filter:
