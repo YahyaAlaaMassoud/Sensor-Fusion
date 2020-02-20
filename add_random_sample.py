@@ -15,6 +15,8 @@ from operator import itemgetter
     https://stackoverflow.com/questions/563198/how-do-you-detect-where-two-line-segments-intersect
     https://stackoverflow.com/questions/1211212/how-to-calculate-an-angle-from-three-points
     https://stackoverflow.com/questions/20677795/how-do-i-compute-the-intersection-point-of-two-lines
+    https://www.cs.hmc.edu/ACM/lectures/intersections.html
+    https://docs.yoyogames.com/source/dadiospice/002_reference/movement%20and%20collisions/collisions/rectangle_in_triangle.html
 '''
 
 DS_DIR = '/home/salam/datasets/KITTI/training'
@@ -31,28 +33,63 @@ def get_angle_between_two_vectors(src, p2, p3):
     angle = np.arccos(dot / (mag_a * mag_b))
     return angle
 
-def line(p1, p2):
-    A = p1[1] - p2[1]
-    B = p2[0] - p1[0]
-    C = p1[0] * p2[1] - p2[0] * p1[1]
-    return A, B, -C
+def intersectLines( pt1, pt2, ptA, ptB ): 
+    """ this returns the intersection of Line(pt1,pt2) and Line(ptA,ptB)
+        
+        returns a tuple: (xi, yi, valid, r, s), where
+        (xi, yi) is the intersection
+        r is the scalar multiple such that (xi,yi) = pt1 + r*(pt2-pt1)
+        s is the scalar multiple such that (xi,yi) = pt1 + s*(ptB-ptA)
+            valid == 0 if there are 0 or inf. intersections (invalid)
+            valid == 1 if it has a unique intersection ON the segment    """
 
-def intersection(L1, L2):
-    D  = L1[0] * L2[1] - L1[1] * L2[0]
-    Dx = L1[2] * L2[1] - L1[1] * L2[2]
-    Dy = L1[0] * L2[2] - L1[2] * L2[0]
-    if D != 0:
-        x = Dx / D
-        y = Dy / D
-        return x,y
-    else:
-        return False
+    DET_TOLERANCE = 0.00000001
 
-def find_intersection(a, b, c, d):
-    l1, l2 = line(a, b), line(c, d)
-    inter = intersection(l1, l2)
-    return inter
+    # the first line is pt1 + r*(pt2-pt1)
+    # in component form:
+    x1, y1 = pt1;   x2, y2 = pt2
+    dx1 = x2 - x1;  dy1 = y2 - y1
 
+    # the second line is ptA + s*(ptB-ptA)
+    x, y = ptA;   xB, yB = ptB
+    dx = xB - x;  dy = yB - y
+
+    # we need to find the (typically unique) values of r and s
+    # that will satisfy
+    #
+    # (x1, y1) + r(dx1, dy1) = (x, y) + s(dx, dy)
+    #
+    # which is the same as
+    #
+    #    [ dx1  -dx ][ r ] = [ x-x1 ]
+    #    [ dy1  -dy ][ s ] = [ y-y1 ]
+    #
+    # whose solution is
+    #
+    #    [ r ] = _1_  [  -dy   dx ] [ x-x1 ]
+    #    [ s ] = DET  [ -dy1  dx1 ] [ y-y1 ]
+    #
+    # where DET = (-dx1 * dy + dy1 * dx)
+    #
+    # if DET is too small, they're parallel
+    #
+    DET = (-dx1 * dy + dy1 * dx)
+
+    if np.fabs(DET) < DET_TOLERANCE: return (0,0,0,0,0)
+
+    # now, the determinant should be OK
+    DETinv = 1.0/DET
+
+    # find the scalar amount along the "self" segment
+    r = DETinv * (-dy  * (x-x1) +  dx * (y-y1))
+
+    # find the scalar amount along the input line
+    s = DETinv * (-dy1 * (x-x1) + dx1 * (y-y1))
+
+    # return the average of the two descriptions
+    xi = (x1 + r*dx1 + x + s*dx)/2.0
+    yi = (y1 + r*dy1 + y + s*dy)/2.0
+    return ( xi, yi, 1, r, s )
 
 def point_in_triangle(p, p0, p1, p2):
     s = p0[1] * p2[0] - p0[0] * p2[1] + (p2[1] - p0[1]) * p[0] + (p0[0] - p2[0]) * p[1]
@@ -72,11 +109,11 @@ t = '000010'#ids[4]
 boxes = reader.get_boxes_3D(t)
 pts, ref = reader.get_velo(t, use_fov_filter=False)
 
-open3d(pts, boxes)
+# open3d(pts, boxes)
 # imshow(bev(pts, pred_boxes=boxes, title="GT"))
 
-lidar_src = np.array([0, 0])
-border_1  = np.array([ 40, 70]), np.array([-40, 70])
+lidar_src = (0, 0)
+border_1  = (70, 40), (70, -40)
 border_2  = np.array([ 40,  0]), np.array([ 40, 70])
 border_3  = np.array([-40,  0]), np.array([-40, 70])
 
@@ -87,7 +124,7 @@ all_limits = []
 
 random_cars_dir = 'data_utils/aug_utils/annotations/cars/'
 random_cars = os.listdir(random_cars_dir)
-random_cars = np.random.choice(random_cars, size=30)
+random_cars = np.random.choice(random_cars, size=20)
 
 sampled_cars = []
 for random_car in random_cars:
@@ -112,7 +149,7 @@ for random_car in random_cars:
     
 sampled_cars = sorted(sampled_cars, key=itemgetter('num_pts'), reverse=True)
 
-def get_box_limit(box):
+def get_box_limit(box, name=None):
     diag_1, diag_2 = box.get_bev_diags()
     angle_diag_1 = get_angle_between_two_vectors(lidar_src, diag_1[0], diag_1[1])
     angle_diag_2 = get_angle_between_two_vectors(lidar_src, diag_2[0], diag_2[1])
@@ -127,50 +164,39 @@ def get_box_limit(box):
     # c = box.get_bev_center()
     # circles.append((c, d1_clr))
     
-    inter_11 = find_intersection(lidar_src, ref_diag[0], border_1[0], border_1[1])
-    inter_12 = find_intersection(lidar_src, ref_diag[1], border_1[0], border_1[1])
+    # print((ref_diag[0][0], ref_diag[0][1]))
+    # print((ref_diag[1][0], ref_diag[1][1]))
+    inter1_x, inter1_y, _, _, _ = intersectLines(border_1[0], border_1[1], lidar_src, (ref_diag[0][0], ref_diag[0][1]))
+    inter2_x, inter2_y, _, _, _ = intersectLines(border_1[0], border_1[1], lidar_src, (ref_diag[1][0], ref_diag[1][1]))
+    # print(inter1_x, inter1_y)
+    # print(inter2_x, inter2_y)
     
-    inter_21 = find_intersection(lidar_src, ref_diag[0], border_2[0], border_2[1])
-    inter_22 = find_intersection(lidar_src, ref_diag[1], border_2[0], border_2[1])
+    if name:
+        print(name)
+        
+    all_limits.append(np.array([[inter1_y, 0, inter1_x],
+                       [0,0,0]]))
     
-    inter_31 = find_intersection(lidar_src, ref_diag[0], border_3[0], border_3[1])
-    inter_32 = find_intersection(lidar_src, ref_diag[1], border_3[0], border_3[1])
+    all_limits.append(np.array([[inter2_y, 0, inter2_x],
+                       [0,0,0]]))
     
-    return ref_diag#(inter_11, inter_12), (inter_21, inter_22), (inter_31, inter_32)
+    return (inter1_x, inter1_y), (inter2_x, inter2_y)
 
 for i, box in enumerate(boxes):
     
     box = boxes[i]
     
-    # (inter_11, inter_12), (inter_21, inter_22), (inter_31, inter_32) = get_box_limit(box)
-    diag = get_box_limit(box)
+    (x1, y1), (x2, y2) = get_box_limit(box)
     
-    # box_limits.append(((inter_11, inter_12), (inter_21, inter_22), (inter_31, inter_32)))
-    box_limits.append(diag)
-    
-    all_limits.append([[diag[0][1], 0, diag[0][0]],
-                       [0,0,0]])
-    
-    all_limits.append([[diag[1][1], 0, diag[1][0]],
-                       [0,0,0]])
-            
-    # all_limits.append([[inter_12[0], 0, inter_12[1]],
-    #                    [0,0,0]])
-
-    # all_limits.append([[inter_21[1], 0, inter_21[0]],
-    #                    [inter_22[1], 0, inter_22[0]]])
-    
-    # all_limits.append([[inter_31[1], 0, inter_31[0]],
-    #                    [inter_32[1], 0, inter_32[0]]])
-
+    box_limits.append(((x1, y1), (x2, y2)))
 
 cnt = 0
 for car in sampled_cars:
     valid = True
     for limit in box_limits:
-        # limit1, limit2, limit3 = limit
-        # limits = [limit1, limit2, limit3]
-    # for lim in limits:
+        (x1, y1), (x2, y2) = limit
+        limit = np.array([[x1, y1],
+                          [x2, y2]])
         for pt in car['bev_corners']:
             is_found = point_in_triangle(pt, lidar_src, limit[0], limit[1])
             if is_found:
@@ -181,16 +207,17 @@ for car in sampled_cars:
     if valid:
         pts = np.concatenate((pts, car['pts']), axis=1)
         boxes.append(car['box'])
-        # (inter_11, inter_12), (inter_21, inter_22), (inter_31, inter_32) = get_box_limit(car['box'])
-        # box_limits.append(((inter_11, inter_12), (inter_21, inter_22), (inter_31, inter_32)))
-        diag = get_box_limit(box)
-        box_limits.append(diag)
+        print(len(all_limits))
+        (x1, y1), (x2, y2) = get_box_limit(box, 'new')
+        print(len(all_limits))
+        box_limits.append(((x1, y1), (x2, y2)))
     else:
         cnt += 1
 
 print('la2 {0}'.format(cnt))
-print(len(all_limits))
+# print(len(all_limits))
 
-open3d(pts, boxes, limits=None)
+
+open3d(pts, boxes, limits=all_limits)
 # # open3d(sampled_pts2, boxes)
-# # imshow(bev(pts, pred_boxes=boxes, title="GT", circles=circles))
+# imshow(bev(pts, pred_boxes=boxes, title="GT", circles=circles))
