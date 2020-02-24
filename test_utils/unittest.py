@@ -30,8 +30,8 @@ def test_target_encoder(target_encoder, boxes):
     assert target.shape == (200, 175, 9), 'Test Target Encoder -> Something wrong happened while Encoding \
                                             boxes, expecting shape (200, 175, 7), got {0}'.format(target.shape)
     decoded_boxes = target_encoder.decode(target, 0.5)
-    filtered_boxes = nms_bev('dist', -1)(decoded_boxes)
-    print(len(boxes), len(decoded_boxes), len(filtered_boxes))
+    filtered_boxes = nms_bev('iou', 0.1)(decoded_boxes)
+    print('gt', len(boxes),'decoded', len(decoded_boxes),'filtered', len(filtered_boxes))
     assert len(filtered_boxes) == len(boxes), 'Test Target Encoder -> length of GT boxes and Pred boxes do not match'
     matched_boxes = []
     for p_box in filtered_boxes:

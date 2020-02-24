@@ -1,10 +1,20 @@
 
+import os
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
+
 import sys
 import os
 import pprint
 import deepdish as dd
 import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow.keras.backend as K
+import gc
+import tensorflow as tf
 
+from numba import cuda
 from pixor_utils.model_utils import load_model
 from training_utils.losses import total_loss
 from training_utils.metrics import objectness_metric, regression_metric
@@ -13,6 +23,7 @@ from datasets.kitti import KITTI, ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYC
 from encoding_utils.pointcloud_encoder import OccupancyCuboidKITTI
 from pixor_targets import PIXORTargets
 from data_utils.prediction_gen import PredictionGenerator
+from data_utils.nms_thread import NMSGenerator
 from pixor_utils.post_processing import nms_bev
 from pixor_utils.pred_utils import boxes_to_pred_str
 from test_utils.unittest import test_pc_encoder, test_target_encoder
@@ -38,7 +49,7 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
         frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
         outmap = np.squeeze(model.predict_on_batch(encoded_pcs).numpy())
         decoded_boxes = target_encoder.decode(np.squeeze(outmap), 0.05)
-        decoded_boxes = nms_bev('iou', 0.1, max_boxes=500)(decoded_boxes)
+        decoded_boxes = nms_bev('iou', 0.1, max_boxes=55, axis_aligned=False)(decoded_boxes)
         lines = boxes_to_pred_str(decoded_boxes, kitti_reader.get_calib(frames[0])[2])
         with open(os.path.join(exp_path, frames[0] + '.txt'), 'w') as txt:
             if len(decoded_boxes) > 0:
@@ -48,6 +59,54 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
         
     val_gen.stop()
     
+    os.system('cp -r {0} {1}'.format(os.getcwd() + '/' + ckpts_dir + exp_name, '/home/yahyaalaa/Yahya/kitti_dev/eval_kitti/build/results/'))
+    os.system('cd eval_kitti/build/ && ./evaluate_object {0} {1}'.format(exp_name[1:], split))
+
+def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids, epoch, ckpts_dir, exp_id, n_threads=6, max_queue_size=12, split='val'):
+    
+    exp_name = '/{0}-{1}-split-epoch-{2}'.format(exp_id, split, epoch)
+    exp_path = ckpts_dir + exp_name + '/data/'
+    
+    os.makedirs(exp_path, exist_ok=True)
+    
+    batch_size = 8
+    val_gen = PredictionGenerator(reader=kitti_reader, frame_ids=frame_ids, batch_size=batch_size,
+                                  pc_encoder=pc_encoder, n_threads=n_threads, max_queue_size=max_queue_size)
+    val_gen.start()
+    
+    pred_boxes = []
+    finished = 0
+
+    for batch_id in range(val_gen.batch_count):
+        batch = val_gen.get_batch()
+        frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
+        for i in range(encoded_pcs.shape[0]):
+            outmap = np.squeeze(model.predict_on_batch(np.expand_dims(encoded_pcs[i], axis=0)).numpy())
+            pred_boxes.append({
+                'frame': frames[i],
+                'outmap': outmap,
+            })
+        finished += encoded_pcs.shape[0]
+        print('finished predicting {0} examples'.format(finished))
+
+    val_gen.stop()
+
+    del model
+    tf.keras.backend.clear_session()
+    gc.collect()
+    cuda.get_current_device().reset()
+    print('deleted model')
+
+    gen = NMSGenerator(reader=kitti_reader, target_encoder=target_encoder, preds=pred_boxes, exp_path=exp_path, n_threads=16)
+    gen.start()
+    new_size = 0
+    while True:
+        if len(gen.done) != new_size:
+            new_size = len(gen.done)
+            print('Done with ', new_size, 'frames')
+        if len(gen.done) == len(pred_boxes):
+            break
+
     os.system('cp -r {0} {1}'.format(os.getcwd() + '/' + ckpts_dir + exp_name, '/home/yahyaalaa/Yahya/kitti_dev/eval_kitti/build/results/'))
     os.system('cd eval_kitti/build/ && ./evaluate_object {0} {1}'.format(exp_name[1:], split))
 
@@ -109,14 +168,14 @@ def main():
                 ext = chkpt_file.split('.')[-1]
                 print('Checkpoint for epoch {0} - {1}: OK'.format(epoch, ext))
                 chkpts_map[epoch][ext] = os.path.join(chkpt_dir, chkpt_file)
-                
+    
     val = False
     train = False
     while True:
         split_ids = customInput(in_type=int,
                                 mssg='0 -> evaluate on train set\n1 -> evaluate on validation set\n',
                                 err_mssg='Please enter valid input!')
-        os.system('clear')
+        # os.system('clear')
         if split_ids == 0:
             train = True
             break
@@ -140,7 +199,7 @@ def main():
                                         "sml  -> evaluate on all small objects (pedestrians, cyclists)\n" + \
                                         "cycl -> evaluate on cyclists only\n",
                                    err_mssg='Please enter valid input!')
-        os.system('clear')    
+        # os.system('clear')    
         if chosen_class in ['car', 'ped', 'cycl', 'vec', 'sml']:
             target_class = class_dict[chosen_class]
             break
@@ -162,7 +221,7 @@ def main():
     train_ids = kitti.get_ids('train')
     val_ids = kitti.get_ids('val')
 
-    pc_encoder     = OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1)
+    pc_encoder     = OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1, densify=True)
     target_encoder = PIXORTargets(shape=TARGET_SHAPE,
                                   stats=dd.io.load('kitti_stats/stats.h5'),
                                   P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
@@ -183,10 +242,9 @@ def main():
     #--------------------------------------#
     #-----------RUN UNIT TESTS-------------#
     #--------------------------------------#
-                
+
     for key, val in chkpts_map.items():
         if len(val) > 0:
-            pass
             model = load_model(val['json'], val['h5'], {'BiFPN': BiFPN})
             optimizer = Adam(lr=0.0001)
             losses = {
@@ -213,7 +271,7 @@ def main():
                 ids = val_ids
                 split = 'val'
                 
-            generate_preds(model=model, 
+            generate_preds_v2(model=model, 
                            kitti_reader=kitti, 
                            pc_encoder=pc_encoder, 
                            target_encoder=target_encoder, 

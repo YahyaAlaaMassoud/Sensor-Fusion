@@ -21,17 +21,17 @@ def iou_bev(axis_aligned=False):
             intersection = max(0, (x2 - x1)) * max(0, (y2 - y1))
             iou = intersection / (area_1 + area_2 - intersection)
         else:
-            box_1 = Polygon(box_1.get_corners().T[0:4, [2, 0]])
-            box_2 = Polygon(box_2.get_corners().T[0:4, [2, 0]])
-            iou = box_1.intersection(box_2).area / box_1.union(box_2).area
+            box_1_p = Polygon(box_1.get_corners().T[0:4, [2, 0]])
+            box_2_p = Polygon(box_2.get_corners().T[0:4, [2, 0]])
+            iou = box_1_p.intersection(box_2_p).area / box_1_p.union(box_2_p).area
         return iou
         
     return compute_iou_bev
 
 def dist_bev(box_1, box_2):
-    return - np.sqrt((box_1.x - box_2.x) ** 2 + (box_1.z - box_2.z) ** 2)
+    return np.sqrt((box_1.x - box_2.x) ** 2 + (box_1.z - box_2.z) ** 2)
 
-def nms_bev(nms_type, thresh, max_boxes=100, min_hit=2, axis_aligned=False):
+def nms_bev(nms_type, thresh, max_boxes=100, min_hit=0, axis_aligned=False):
     if nms_type not in ['iou', 'dist']:
         return None
 
@@ -42,21 +42,26 @@ def nms_bev(nms_type, thresh, max_boxes=100, min_hit=2, axis_aligned=False):
 
     def nms(boxes):
         boxes.sort(key=lambda box: box.confidence, reverse=True)
+        if len(boxes) > 500:
+            boxes = boxes[:500]
         filtered_boxes = []
 
         while len(boxes) > 0 and len(filtered_boxes) < max_boxes:
             top_box = boxes[0]
             boxes = np.delete(boxes, 0)  # Remove top box from main list
-            
+
             # Remove all other boxes overlapping with selected box
-            boxes_to_remove = []
+            # boxes_to_remove = []
             hits = 0
+            mask = np.ones(len(boxes), dtype=bool)
             for box_id in range(len(boxes)):
                 dist = thresh_fn(boxes[box_id], top_box)
                 if dist > thresh:
-                    boxes_to_remove += [box_id]
+                    # boxes_to_remove += [box_id]
+                    mask[box_id] = False
                     hits += 1
-            boxes = np.delete(boxes, boxes_to_remove)
+            boxes = boxes[mask, ...]
+            # boxes = np.delete(boxes, boxes_to_remove)
             
             # Add box with highest confidence to output list
             if hits >= min_hit:
