@@ -125,14 +125,15 @@ class PointCloudAugmenter:
         return __cut_flip_stitch
 
     @staticmethod
-    def keep_valid_data(gt_boxes_3d, pts_res, reflectance_res):
+    def keep_valid_data(gt_boxes_3d, pts_res, reflectance_res=None):
         ind = np.where((pts_res[:, 0] >= -40) & (pts_res[:, 0] <= 40) & (pts_res[:, 2] >= 0) & (pts_res[:, 2] <= 70))[0]
         pts_res = pts_res[ind, :]
-        reflectance_res = reflectance_res[ind, ...]
+        if reflectance_res is not None:
+            reflectance_res = reflectance_res[ind, ...]
 
         list_final_bb = []
         for bb in gt_boxes_3d:
-            if (-40 <= bb.x <= 40) and (-1 <= bb.y <= 2.5) and (0 <= bb.z <= 70):
+            if (-40 <= bb.x and bb.x <= 40) and (-1 <= bb.y and bb.y <= 2.5) and (0 <= bb.z and bb.z <= 70):
                 list_final_bb.append(bb)
 
         return pts_res, list_final_bb, reflectance_res
@@ -162,22 +163,24 @@ class PointCloudAugmenter:
 
     @staticmethod
     def per_box_dropout(dropout_ratio=0.1):
+        if not 0 < dropout_ratio < 0.5:
+            raise ValueError('Dropout ratio must be in (0, 0.5)')
         
         def __per_box_dropout(gt_boxes_3d, pts, reflectance=None):
+            flags = np.ones((pts.shape[0], ), dtype='uint8')
             for bb in gt_boxes_3d:
+                if random.uniform(0, 1) < 0.5:
+                    continue
                 inds = PointCloudAugmenter.find_containing_points(bb, pts)
-
                 if len(inds) > 15:
                     random.shuffle(inds)
                     inds_to_remove = inds[:int(len(inds)*dropout_ratio)]
-
-                    inds_to_keep = list(range(pts.shape[0]))
-                    inds_to_keep = list(set(inds_to_keep).difference(set(inds_to_remove)))
-
-                    pts = pts[inds_to_keep, ...]
-                    if reflectance:
-                        reflectance = reflectance[inds_to_keep, ...]
-
+                    # inds_to_remove_all.extend(inds_to_remove)
+                    flags[inds_to_remove] = 0
+            # inds_to_keep = np.setdiff1d(np.arange(pts.shape[0]), inds_to_remove_all)
+            pts = pts[flags == 1, ...]
+            if reflectance is not None:
+                reflectance = reflectance[flags == 1, ...]
             return pts, gt_boxes_3d, reflectance
         
         return __per_box_dropout
@@ -226,7 +229,7 @@ class PointCloudAugmenter:
                         (p2 >= 0) & (p2 <= np.dot(v2, v2)) &
                         (p3 >= 0) & (p3 <= np.dot(v3, v3)))[0]
         return inds
-
+    
     @staticmethod
     def flip_along_x():
         
