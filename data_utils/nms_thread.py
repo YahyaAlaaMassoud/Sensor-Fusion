@@ -23,7 +23,7 @@ class NMSThread(threading.Thread):
 
         self.stop_flag = False
 
-        self.nms = nms_bev('iou', 0.1, max_boxes=50, axis_aligned=False)
+        self.nms = nms_bev('dist', -1.5)
 
     def apply_nms(self):
         # print('I began applying NMS!')
