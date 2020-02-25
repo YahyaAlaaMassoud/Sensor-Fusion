@@ -2,7 +2,7 @@
 import os
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 import sys
 import os
@@ -62,7 +62,7 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
     os.system('cp -r {0} {1}'.format(os.getcwd() + '/' + ckpts_dir + exp_name, '/home/yahyaalaa/Yahya/kitti_dev/eval_kitti/build/results/'))
     os.system('cd eval_kitti/build/ && ./evaluate_object {0} {1}'.format(exp_name[1:], split))
 
-def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids, epoch, ckpts_dir, exp_id, n_threads=6, max_queue_size=12, split='val'):
+def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids, epoch, ckpts_dir, exp_id, n_threads=4, max_queue_size=8, split='val'):
     
     exp_name = '/{0}-{1}-split-epoch-{2}'.format(exp_id, split, epoch)
     exp_path = ckpts_dir + exp_name + '/data/'
@@ -97,15 +97,17 @@ def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids
     cuda.get_current_device().reset()
     print('deleted model')
 
-    gen = NMSGenerator(reader=kitti_reader, target_encoder=target_encoder, preds=pred_boxes, exp_path=exp_path, n_threads=16)
+    nms_threads = 16
+    gen = NMSGenerator(reader=kitti_reader, target_encoder=target_encoder, preds=pred_boxes, exp_path=exp_path, n_threads=nms_threads)
     gen.start()
     new_size = 0
     while True:
-        if len(gen.done) != new_size:
-            new_size = len(gen.done)
-            print('Done with ', new_size, 'frames')
-        if len(gen.done) == len(pred_boxes):
+        # if len(gen.done) != new_size:
+        #     new_size = len(gen.done)
+        #     print('Done with ', new_size, 'frames')
+        if len(gen.done) == nms_threads:
             break
+    gen.stop()
 
     os.system('cp -r {0} {1}'.format(os.getcwd() + '/' + ckpts_dir + exp_name, '/home/yahyaalaa/Yahya/kitti_dev/eval_kitti/build/results/'))
     os.system('cd eval_kitti/build/ && ./evaluate_object {0} {1}'.format(exp_name[1:], split))

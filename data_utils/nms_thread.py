@@ -38,9 +38,9 @@ class NMSThread(threading.Thread):
                 with open(os.path.join(self.exp_path, frame + '.txt'), 'w') as txt:
                     if len(filtered_boxes) > 0:
                         txt.writelines(lines)
-                self.done.append(frame)
             # print('I have finished frame #', frame)
         self.stop_flag = True
+        self.done.append(0)
         # print('I am done!')
     
     def run(self):
