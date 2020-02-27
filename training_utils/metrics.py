@@ -2,11 +2,11 @@
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-from .losses import binary_focal_loss, smooth_l1_loss, absolute_diff_loss
+from .losses import binary_focal_loss, smooth_l1_loss, absolute_diff_loss, focal_loss
 
 def objectness_metric(alpha, gamma, subsampling_flag):
     
-    obj_loss_fn = binary_focal_loss(alpha, gamma, subsampling_flag)
+    obj_loss_fn = focal_loss(alpha, gamma, subsampling_flag)
     
     def compute_objectness_metric(y_true, y_pred):
         metric_value = obj_loss_fn(y_true, y_pred[:, :, :, 0])
@@ -37,8 +37,7 @@ def regression_metric(reg_loss_name, reg_channels, weight, subsampling_flag):
                                             mask=mask,
                                             axis=0)
         metric_value = reg_loss_fn(y_true_reg_masked, y_pred_reg_masked)
-        metric_value = tf.where(tf.math.is_nan(metric_value), tf.zeros_like(metric_value), metric_value)
-        
+
         return metric_value
 
     return compute_regression_metric
