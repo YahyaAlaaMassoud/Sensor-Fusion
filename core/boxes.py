@@ -89,6 +89,10 @@ class Box3D:
     def get_bev_diags(self):
         return self.get_bev_box().T[(0, 2),:], self.get_bev_box().T[(1, 3),:]
     
+    def get_3d_diag(self):
+        return  (self.get_corners()[(2, 0, 1), :].T[(0, 2), :], self.get_corners()[(2, 0, 1), :].T[(4, 6), :]), \
+                (self.get_corners()[(2, 0, 1), :].T[(1, 3), :], self.get_corners()[(2, 0, 1), :].T[(5, 7), :])
+    
     def get_bev_center(self):
         diag = self.get_bev_diags()[0]
         x = (diag[0][0] + diag[1][0]) / 2.
