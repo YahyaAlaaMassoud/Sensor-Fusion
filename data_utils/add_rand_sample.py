@@ -2,8 +2,9 @@
 import os
 import numpy as np
 import deepdish as dd
+import timeit
 
-from viz import open3d, bev, imshow
+# from viz import open3d, bev, imshow
 from core.kitti import KITTI, ALL_OBJECTS, CARS_ONLY
 from core.boxes import Box3D, translate_box_3D
 from data_utils.augmentation import PointCloudAugmenter
@@ -78,7 +79,7 @@ def check_point_side_2d(ax, ay, bx, by, pts_x, pts_y):
     return d
 
 
-def add_random_sample(num_samples=15, sort_desc=False, filter_wall_thresh=150, random_samples_dir='data_utils/aug_utils/annotations/cars/'):
+def add_random_sample(num_samples=30, sort_desc=False, filter_wall_thresh=150, random_samples_dir='data_utils/aug_utils/annotations/cars/'):
 
     random_samples     = os.listdir(random_samples_dir)
     random_samples     = np.random.choice(random_samples, size=num_samples)
@@ -113,7 +114,7 @@ def add_random_sample(num_samples=15, sort_desc=False, filter_wall_thresh=150, r
     border_start = (70, 40)
     border_end   = (70, -40)
 
-    def _get_box_limits(box):
+    def _get_box_limits(box, name=None):
         diag1, diag2       = box.get_bev_diags()
         diag1_3d, diag2_3d = box.get_3d_diag()
 
@@ -140,6 +141,19 @@ def add_random_sample(num_samples=15, sort_desc=False, filter_wall_thresh=150, r
         min_h = diag_3d[0][0][-1]
         max_h = diag_3d[1][0][-1]
 
+        # if name is not None:
+        #     all_limits.append(np.array([[inter1_y, 0, inter1_x],
+        #                                 [0,0,0]]))
+            
+        #     all_limits.append(np.array([[inter2_y, 0, inter2_x],
+        #                                 [0,0,0]]))
+
+            # all_limits.append(np.array([[ref_diag[0][1], min_z, ref_diag[0][0]],
+            #                             [0,0,0]]))
+            
+            # all_limits.append(np.array([[ref_diag[1][1], min_z, ref_diag[1][0]],
+            #                             [0,0,0]]))
+
         return {
             'inter1':   (inter1_x, inter1_y),
             'inter2':   (inter2_x, inter2_y),
@@ -149,6 +163,9 @@ def add_random_sample(num_samples=15, sort_desc=False, filter_wall_thresh=150, r
         }
 
     def _add_random_sample(gt_boxes, pts, ref=None):
+
+        if pts.shape[0] != 3:
+            pts = pts.T
 
         ys = sorted([box.y for box in gt_boxes], reverse=False)
         median_y = np.median(ys)
@@ -200,7 +217,7 @@ def add_random_sample(num_samples=15, sort_desc=False, filter_wall_thresh=150, r
                 sample['box'] = new_box
                 sample['pts'] = new_pts.T
 
-                new_limit =_get_box_limits(sample['box'])
+                new_limit = _get_box_limits(sample['box'])
                 box_limits.append(new_limit)
                 valid_samples_limits[sample['frame_id']].append(new_limit)
                 valid_samples.append(sample)
@@ -264,47 +281,52 @@ def add_random_sample(num_samples=15, sort_desc=False, filter_wall_thresh=150, r
                     d_t2 = check_point_side_3d(side5_a, side5_b, side5_c, pts_keep[(2, 1, 0), :])
                     rem_top = np.where((l1 == 1) & (l3 == 1) & (l2 == 1) & (l4 == 1) & (d_t2 == 1))[0]
 
-                    pts_keep = np.delete(pts_keep, rem_top, axis=1)
+                    if len(rem_top) > 0:
+                        mask = np.ones((pts_keep.shape[1]), dtype=bool)
+                        mask[rem_top] = False
+                        pts_keep = pts_keep[:,mask]
                     
                     if cur_del is not None:
                         if cur_del.shape[1] <= filter_wall_thresh:
-                            pts = np.delete(pts, inds_d2, axis = 1)
-                            pts = np.delete(pts, inds_d1, axis = 1)
+                            mask = np.ones((pts.shape[1]), dtype=bool)
+                            mask[inds_d1] = False
+                            mask[inds_d2] = False
+                            pts = pts[:,mask]
                             final_samples.append(sample['box'])
-                            new_pts.append(sample['pts'])
-                    
-                    pts = np.concatenate((pts, pts_keep), axis=1)
+                            pts = np.concatenate((pts, sample['pts']), axis=1)
+                            pts = np.concatenate((pts, pts_keep), axis=1)
+                            # _get_box_limits(sample['box'], '')
 
-        for new_pt in new_pts:
-            pts    = np.concatenate((pts, new_pt), axis=1)
-
-        print('added {0} new boxes in the scene'.format(len(final_samples)))
+        # print('added {0} new boxes in the scene'.format(len(final_samples)))
         
         gt_boxes.extend(final_samples)
         return pts, gt_boxes, ref
 
     return _add_random_sample
 
-DS_DIR = '/home/salam/datasets/KITTI/training'
-reader = KITTI(DS_DIR, CARS_ONLY)
+# DS_DIR = '/home/salam/datasets/KITTI/training'
+# reader = KITTI(DS_DIR, CARS_ONLY)
 
-ids = reader.get_ids('train')
+# ids = reader.get_ids('train')
 
-for t in ids[:30]:
-    # t = '000012'
-    gt_boxes = reader.get_boxes_3D(t)
-    org_pts, _ = reader.get_velo(t, use_fov_filter=False)
+# for t in ids[40:100]:
+#     # t = '000012'
+#     gt_boxes_3d = reader.get_boxes_3D(t)
+#     org_pts, _  = reader.get_velo(t, use_fov_filter=False)
 
-    if len(gt_boxes) <= 1:
-        continue
+#     if len(gt_boxes_3d) <= 1:
+#         continue
 
-    open3d(org_pts, gt_boxes, limits=[])
+#     np.random.seed(0)
+#     pts, new_boxes, _ = add_random_sample(num_samples=40, sort_desc=True)(gt_boxes_3d, org_pts)
+#     print('-----------------')
 
-    np.random.seed(0)
-    pts, new_boxes, _ = add_random_sample(num_samples=20, sort_desc=True)(gt_boxes, org_pts)
 
-    # open3d(org_pts, gt_boxes=gt_boxes, sampled_boxes=new_boxes, limits=all_limits)
+#     # open3d(org_pts, gt_boxes=gt_boxes, sampled_boxes=new_boxes, limits=all_limits)
 
-    open3d(pts, gt_boxes=new_boxes)
+#     # open3d(org_pts, gt_boxes_3d, limits=[])
+#     open3d(pts, gt_boxes=gt_boxes_3d, sampled_boxes=new_boxes, limits=all_limits)
+#     all_limits = []
 
-    print('-----------------')
+#     # imshow(bev(org_pts, gt_boxes_3d))
+#     # imshow(bev(pts, new_boxes))
