@@ -45,6 +45,9 @@ class OccupancyCuboidKITTI(PointCloudEncoder):
         ix = ((pts[:, 2] + (-1. * self.x_min)) * self.qf[0]).astype(np.int32)
         iy = ((pts[:, 0] + (-1. * self.y_min)) * self.qf[1]).astype(np.int32)
         iz = ((pts[:, 1] + (-1. * self.z_min)) * self.qf[2]).astype(np.int32)
+        ix[ix >= 700] = 699
+        iy[iy >= 800] = 799
+        iz[iz >= 35] = 34
 
         occupancy_grid = np.zeros(shape=self.get_output_shape(), dtype=np.float32)
 
@@ -52,7 +55,7 @@ class OccupancyCuboidKITTI(PointCloudEncoder):
             ones = []
             for i in iz:
                 arr = np.zeros((self.cube_height))
-                arr[i:] = 1.
+                arr[:i] = 1.
                 ones.append(arr)
             occupancy_grid[iy, ix] = np.array(ones)
         else:
