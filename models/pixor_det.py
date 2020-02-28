@@ -11,6 +11,7 @@ from tensorflow.keras.layers import Input, Conv2D, SeparableConv2D, ReLU, BatchN
                                         Conv2DTranspose, Concatenate, Layer, Add, Average, Lambda, UpSampling2D, DepthwiseConv2D
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import plot_model
 
 from .blocks import create_conv_block, create_sep_conv_block, create_res_conv_block, create_res_sep_conv_block
 from .layers import BiFPN
@@ -86,7 +87,7 @@ def create_pixor_det(input_shape=(800, 700, 35),
             
         # Params: 3,969,031
     '''
-    K.clear_session()
+    # K.clear_session()
     
     KERNEL_REG       = kernel_regularizer
     KERNEL_SIZE      = {
@@ -103,7 +104,7 @@ def create_pixor_det(input_shape=(800, 700, 35),
     CLASS_CHANNELS   = 1
     OUT_KERNEL_SIZE  = 1
     REGRESS_CHANNELS = reg_channels
-    BiFPN_filters    = 128
+    BiFPN_filters    = 104
     
     inp = Input(shape=input_shape)
     x   = inp
@@ -111,18 +112,18 @@ def create_pixor_det(input_shape=(800, 700, 35),
     with tf.name_scope("Backbone"):
         with tf.name_scope("Block1"):
             x = Conv2D(filters=FILTERS // 8, kernel_size=KERNEL_SIZE['Layer1'], padding=PADDING, kernel_regularizer=KERNEL_REG, use_bias=False)(x)
-            x = BatchNormalization()(x)
+            x = BatchNormalization(fused=True)(x)
             x = ReLU()(x)
             x = create_conv_block(x, filters=FILTERS // 8, kernel_size=KERNEL_SIZE['Block1'], num_layers=1)
             block1_out = x
             # Downsize twice
             block1_out = AveragePooling2D()(block1_out)
-            block1_out = create_sep_conv_block(block1_out, FILTERS // 8, KERNEL_SIZE['Block1'], num_layers=1)
+            block1_out = create_sep_conv_block(block1_out, FILTERS // 8, kernel_size=1, num_layers=1)
             block1_out = AveragePooling2D()(block1_out)
-            block1_out = create_sep_conv_block(block1_out, FILTERS // 8, KERNEL_SIZE['Block1'], num_layers=1)
+            block1_out = create_sep_conv_block(block1_out, FILTERS // 8, kernel_size=1, num_layers=1)
             # change number of channels from X -> BiFPN channels            
             block1_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block1_out)
-            block1_out = BatchNormalization()(block1_out)
+            block1_out = BatchNormalization(fused=True)(block1_out)
             block1_out = ReLU()(block1_out)
             
         with tf.name_scope("Block2"):
@@ -130,16 +131,16 @@ def create_pixor_det(input_shape=(800, 700, 35),
             x = MaxPooling2D()(x)
             #--------Downsampling--------#
             x = Conv2D(filters=FILTERS // 4, kernel_size=KERNEL_SIZE['Block2'], padding=PADDING, use_bias=False)(x)
-            x = BatchNormalization()(x)
+            x = BatchNormalization(fused=True)(x)
             x = ReLU()(x)
             x = create_conv_block(x, filters=FILTERS // 4, kernel_size=KERNEL_SIZE['Block2'], num_layers=1)
             block2_out = x
             # Downsize once
             block2_out = AveragePooling2D()(block2_out)
-            block2_out = create_sep_conv_block(block2_out, FILTERS // 4, KERNEL_SIZE['Block1'], num_layers=1)
+            block2_out = create_sep_conv_block(block2_out, FILTERS // 4, kernel_size=1, num_layers=1)
             # change number of channels from X -> BiFPN channels
             block2_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block2_out)
-            block2_out = BatchNormalization()(block2_out)
+            block2_out = BatchNormalization(fused=True)(block2_out)
             block2_out = ReLU()(block2_out)
             
         with tf.name_scope("Block3"):
@@ -147,13 +148,13 @@ def create_pixor_det(input_shape=(800, 700, 35),
             x = MaxPooling2D()(x)
             #--------Downsampling--------#
             x = Conv2D(filters=FILTERS // 2, kernel_size=KERNEL_SIZE['Block3'], padding=PADDING, use_bias=False)(x)
-            x = BatchNormalization()(x)
+            x = BatchNormalization(fused=True)(x)
             x = ReLU()(x)
             x = create_conv_block(x, filters=FILTERS // 2, kernel_size=KERNEL_SIZE['Block3'], num_layers=2)
             block3_out = x
             # change number of channels from X -> BiFPN channels
             block3_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block3_out)
-            block3_out = BatchNormalization()(block3_out)
+            block3_out = BatchNormalization(fused=True)(block3_out)
             block3_out = ReLU()(block3_out)
             
         with tf.name_scope("Block4"):
@@ -161,29 +162,28 @@ def create_pixor_det(input_shape=(800, 700, 35),
             x = MaxPooling2D()(x)
             #--------Downsampling--------#
             x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE['Block4'], padding=PADDING, use_bias=False)(x)
-            x = BatchNormalization()(x)
+            x = BatchNormalization(fused=True)(x)
             x = ReLU()(x)
             x = create_conv_block(x, filters=FILTERS // 1, kernel_size=KERNEL_SIZE['Block4'], num_layers=5)
             block4_out = x
             # upsmaple once
             block4_out = tf.image.resize(block4_out, size=get_new_shape(block4_out, 2), method=RESIZE_METHOD)
-            block4_out = SeparableConv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE['Block4'], padding=PADDING)(block4_out)
+            block4_out = SeparableConv2D(filters=FILTERS // 1, kernel_size=1, padding=PADDING)(block4_out)
             # change number of channels from X -> BiFPN channels
             block4_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block4_out)
-            block4_out = BatchNormalization()(block4_out)
+            block4_out = BatchNormalization(fused=True)(block4_out)
             block4_out = ReLU()(block4_out)
             
     out1, out2, out3, out4 = block1_out, block2_out, block3_out, block4_out
     out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
     out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
-    # out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
-    # out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
+    out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
 
     with tf.name_scope("FinalOutput"):
       
-      concat = Add()([out1, out2, out3, out4])
-      x = create_conv_block(concat, filters=BiFPN_filters, kernel_size=3, num_layers=4)
-      x = Add()([x, concat])
+      concat = Concatenate(axis=-1)([out1, out2, out3, out4])
+      x = create_conv_block(concat, filters=BiFPN_filters, kernel_size=3, num_layers=3)
+      # x = Add()([x, concat])
       
       obj        = Conv2D(CLASS_CHANNELS, kernel_size=OUT_KERNEL_SIZE, padding=PADDING, activation='sigmoid', name='objectness_map')(x)
       geo        = Conv2D(REGRESS_CHANNELS, kernel_size=OUT_KERNEL_SIZE, padding=PADDING, name='geometric_map')(x)
@@ -194,3 +194,11 @@ def create_pixor_det(input_shape=(800, 700, 35),
 
 # model = create_pixor_det()
 # model.summary()
+# plot_model(
+#     model,
+#     to_file='lolo/model.png',
+#     show_shapes=False,
+#     show_layer_names=True,
+#     expand_nested=True,
+#     dpi=96
+# )
