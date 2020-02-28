@@ -55,7 +55,7 @@ def binary_focal_loss(alpha, gamma, subsampling_flag):
 
     return compute_binary_focal_loss
 
-@tf.function
+@tf.function(experimental_relax_shapes=True)
 def absolute_diff_loss(y_true, y_pred):
     abs_diff = tf.abs(y_true - y_pred)
     loss = tf.reduce_mean(abs_diff)
