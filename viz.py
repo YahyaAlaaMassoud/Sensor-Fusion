@@ -6,8 +6,6 @@ import os
 
 import cv2
 import matplotlib
-import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 
@@ -15,6 +13,9 @@ from core import transforms_3D, transforms_2D
 from core.boxes import Box2D, Box3D, get_corners_3D
 
 matplotlib.use('tkagg')
+
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 GT_COLORS = {
     'Car': 'green',
@@ -123,12 +124,13 @@ def bev(pts=None, gt_boxes=None, pred_boxes=None, scale=10, title=None, circles=
             ax, ay = np.mean(corners[:, 1:3], axis=1)
             cv2.line(canvas, (cx, cy), (ax, ay), color, 1, cv2.LINE_AA)
             
-            for circle, clr in circles:
-                circle = transforms_2D.transform(H, np.expand_dims(np.array([circle[0], circle[1]]), axis=1))
-                circle = np.squeeze(circle)
-                cv2.circle(canvas, (int(circle[0]), int(circle[1])), 3, clr, -1)
-                if clr == (0, 255, 0):
-                    cv2.line(canvas, (0, 400), (int(circle[0]), int(circle[1])), clr, 1, cv2.LINE_AA)
+            if circles is not None:
+                for circle, clr in circles:
+                    circle = transforms_2D.transform(H, np.expand_dims(np.array([circle[0], circle[1]]), axis=1))
+                    circle = np.squeeze(circle)
+                    cv2.circle(canvas, (int(circle[0]), int(circle[1])), 3, clr, -1)
+                    if clr == (0, 255, 0):
+                        cv2.line(canvas, (0, 400), (int(circle[0]), int(circle[1])), clr, 1, cv2.LINE_AA)
 
             # Write text
             if box.text is not None and len(box.text) > 0:
@@ -166,7 +168,7 @@ def __create_sphere(x, y, z, r, color):
                                [0, 0, 0, 1]]))
 
 
-def open3d(pts=None, gt_boxes=None, pred_boxes=None, limits=None):
+def open3d(pts=None, gt_boxes=None, sampled_boxes=None, pred_boxes=None, limits=None):
     # Visualizer
     vis = o3d.visualization.Visualizer()
     vis.create_window(width=1200, height=600)
@@ -180,6 +182,10 @@ def open3d(pts=None, gt_boxes=None, pred_boxes=None, limits=None):
         for box in gt_boxes:
             vis.add_geometry(__pts_to_line_set(pts=get_corners_3D(box), connections=BOX_CONNECTIONS_3D, color=GT_COLORS[box.cls]))
 
+    if sampled_boxes is not None:
+        for box in sampled_boxes:
+            vis.add_geometry(__pts_to_line_set(pts=get_corners_3D(box), connections=BOX_CONNECTIONS_3D, color='yellow'))
+
     # Draw pred_boxes
     if pred_boxes is not None:
         for box in pred_boxes:
@@ -187,7 +193,7 @@ def open3d(pts=None, gt_boxes=None, pred_boxes=None, limits=None):
             
     if limits is not None:
         for limit in limits:
-            vis.add_geometry(__pts_to_line_set(pts=limit.T, connections=LINE_CONNECTIONS_3D, color=GT_COLORS[box.cls]))
+            vis.add_geometry(__pts_to_line_set(pts=limit.T, connections=LINE_CONNECTIONS_3D, color='red'))
 
     # Create point cloud
     if pts is not None:
@@ -230,5 +236,5 @@ def main():
         # open3d(pts, boxes_3D)
 
 
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()
