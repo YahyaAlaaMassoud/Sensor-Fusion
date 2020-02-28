@@ -6,6 +6,7 @@ import timeit
 import random
 
 from .augmentation import PointCloudAugmenter
+from .add_rand_sample import add_random_sample
 from core.kitti import box_filter 
 from queue import Queue
 
@@ -29,6 +30,7 @@ class Training_Generator_Thread(threading.Thread):
         self.stop_flag = False
         self.batch_count = int(np.ceil(len(self.frame_ids) / self.batch_size))
         
+        self.add_random_sample = add_random_sample()
         self.augmentations_dict = {
             'per_box_dropout': PointCloudAugmenter.per_box_dropout(0.1),
             'flip_along_x': PointCloudAugmenter.flip_along_x(),
@@ -56,6 +58,7 @@ class Training_Generator_Thread(threading.Thread):
     def __rand_aug(self, pts, gt_boxes_3D, ref=None, aug_prob=0.5):
         if pts.shape[1] != 3:
             pts = pts.T
+        
         if np.random.uniform() < aug_prob:
             number_of_augs = np.random.randint(low=1, high=len(self.augmentations_arr) // 2 + 1)
             augs_ids       = np.random.choice(len(self.augmentations_arr), 
@@ -94,21 +97,31 @@ class Training_Generator_Thread(threading.Thread):
                  'encoded_pcs': np.zeros(shape=(len(selected_frame_ids),) + self.pc_encoder.get_output_shape(), dtype=np.float32),
                  'encoded_targets': np.zeros(shape=(len(selected_frame_ids),) + self.target_encoder.get_output_shape(), dtype=np.float32)}
 
+        start = timeit.default_timer()
         for i in range(len(selected_frame_ids)):
             # Input
             pts, _ = self.reader.get_velo(selected_frame_ids[i], use_fov_filter=False)  # Load velo
             # Output
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
 
+            if len(gt_boxes_3D) > 1:
+                # print('before rand sam', pts.shape)
+                pts, gt_boxes_3D, _ = self.add_random_sample(gt_boxes_3D, pts)
+                # print(selected_frame_ids)
+                # print('after rand sam', pts.shape)
+                # print('----------------------')
+
             # pts, _, gt_boxes_3D = self.__sequence_aug(pts, gt_boxes_3D)
-            pts, _, gt_boxes_3D = self.__rand_aug(pts, gt_boxes_3D)
+            # print('before aug', pts.shape)
+            pts, _, gt_boxes_3D = self.__rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
+            # print('after aug', pts.shape)
 
             if pts.shape[1] != 3:
                 pts = pts.T
             
             batch['encoded_pcs'][i]     = self.pc_encoder.encode(pts)
             batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
-  
+
         # end = timeit.default_timer()
         # print('adding batch took {0}', end-start)
         self.queue.put(batch)
@@ -148,16 +161,16 @@ class TrainingGenerator:
             self.threads += [thread]
 
     def get_batch(self):
-        for _ in range(20):
+        for _ in range(100):
             for thread in self.threads:
                 if thread.queue.qsize() is not 0:
                     try:
-                        batch = thread.queue.get(timeout=50)
+                        batch = thread.queue.get(timeout=150)
                         batch['queue_size'] = thread.queue.qsize()
                         return batch
                     except:
                         continue
-            time.sleep(3.)
+            time.sleep(5.)
         print('all Qs are empty')
 
     def start(self):
