@@ -1,7 +1,7 @@
 
 import tensorflow as tf
 
-from tensorflow.keras.layers import Layer
+from tensorflow.keras.layers import Layer, ReLU
 
 class BiFPN(Layer):
 
@@ -22,8 +22,9 @@ class BiFPN(Layer):
     assert isinstance(x, list)
 
     # w = ReLU()(self.w)
-    x = tf.reduce_sum([self.w[i] * x[i] for i in range(len(x))], axis=0)
-    x = x / (tf.reduce_sum(self.w) + self.eps)
+    w = self.w
+    x = tf.reduce_sum([w[i] * x[i] for i in range(len(x))], axis=0)
+    x = x / (tf.reduce_sum(w) + self.eps)
     
     return x
 

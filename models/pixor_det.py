@@ -8,13 +8,14 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 from tensorflow.keras.layers import Input, Conv2D, SeparableConv2D, ReLU, BatchNormalization, MaxPooling2D, AveragePooling2D, \
-                                        Conv2DTranspose, Concatenate, Layer, Add, Average, Lambda, UpSampling2D, DepthwiseConv2D
+                                        Conv2DTranspose, Concatenate, Layer, Add, Average, Lambda, UpSampling2D, DepthwiseConv2D, ZeroPadding2D, Activation
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import plot_model
 
-from .blocks import create_conv_block, create_sep_conv_block, create_res_conv_block, create_res_sep_conv_block
+# from blocks import create_conv_block, create_sep_conv_block, create_res_conv_block, create_res_sep_conv_block, create_depthwise_conv_block, class_head, reg_head
 from .layers import BiFPN
+from .activations import Swish
 
 RESIZE_METHOD = 'nearest'
 
@@ -31,174 +32,181 @@ def get_new_shape(fmap, resize_factor):
   # print('new shape', new_w, new_h)
   return (new_w, new_h)
 
-def build_BiFPN_v1(fmap1, fmap2, fmap3, filters=192):
-  with tf.name_scope("BiFPN_Layer"):
+def _build_BiFPN_full_res(f1, f2, f3, filters=192, kernel_size=3, BN=False, max_relu_val=None, weighted=False):
 
-    fmap3_resized = tf.image.resize(fmap3, size=get_new_shape(fmap3, 2), method=RESIZE_METHOD)#tf.image.resize_with_pad(fmap3, target_height=fmap3_shape[1], target_width=fmap3_shape[0], method=RESIZE_METHOD) #
-    fmap3_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3)(fmap3_resized)
+    def _sep_conv(x):
+        x = SeparableConv2D(filters=filters, kernel_size=kernel_size, padding='same', use_bias=not BN, kernel_regularizer=tf.keras.regularizers.l1_l2(l1=5e-5, l2=5e-5))(x)
+        if BN is True:
+            x = BatchNormalization()(x)
+        x = ReLU(max_value=max_relu_val)(x)#Activation(swish)(x)#
+        return x
 
-    fmap2_inter_out = BiFPN()([fmap3_resized, fmap2])
-    fmap2_inter_out = create_sep_conv_block(fmap2_inter_out, filters=filters, kernel_size=3, num_layers=1)
-    fmap2_inter_out_resized = tf.image.resize(fmap2_inter_out, size=get_new_shape(fmap2_inter_out, 2), method=RESIZE_METHOD)#tf.image.resize_with_pad(fmap2_inter_out, target_height=fmap2_inter_out_shape[1], target_width=fmap2_inter_out_shape[0], method=RESIZE_METHOD) #
-    fmap2_inter_out_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3)(fmap2_inter_out_resized)
-    
-    fmap1_out = BiFPN()([fmap2_inter_out_resized, fmap1])
-    fmap1_out = create_sep_conv_block(fmap1_out, filters=filters, kernel_size=3, num_layers=1)
-    fmap1_out_resized = AveragePooling2D()(fmap1_out)
-    
-    fmap2_out = BiFPN()([fmap1_out_resized, fmap2_inter_out, fmap2])
-    fmap2_out = create_sep_conv_block(fmap2_out, filters=filters, kernel_size=3, num_layers=1)
-    fmap2_out_resized = AveragePooling2D()(fmap2_out)
+    fusion_fn = Add
+    if weighted:
+        fusion_fn = BiFPN
+    print(fusion_fn.__name__)
 
-    fmap3_out = BiFPN()([fmap2_out_resized, fmap3])
-    fmap3_out = create_sep_conv_block(fmap3_out, filters=filters, kernel_size=3, num_layers=1)
+    f1_resized = AveragePooling2D()(f1)
+    f2_inter   = fusion_fn()([f2, f1_resized])
+    f2_inter   = _sep_conv(f2_inter)
+
+    f2_inter_resized = AveragePooling2D()(f2_inter)
+    f3_out           = fusion_fn()([f2_inter_resized, f3])
+    f3_out           = _sep_conv(f3_out)
+
+    f3_out_resized = UpSampling2D()(f3_out)
+    f3_out_resized = ZeroPadding2D(((0,0), (0,1)))(f3_out_resized)
+    f2_out         = fusion_fn()([f2, f2_inter, f3_out_resized])
+    f2_out           = _sep_conv(f2_out)
+
+    f2_out_resized = UpSampling2D()(f2_out)
+    f1_out         = fusion_fn()([f2_out_resized, f1])
+    f1_out           = _sep_conv(f1_out)
+
+    return f1_out, f2_out, f3_out
+
+# def build_BiFPN_full_res(f1, f2, f3, f4, filters, data_format, max_relu_val=None):
+#   with tf.name_scope("BiFPN_Layer"):
+
+#     f1_resized = f1
+#     f2_inter   = BiFPN()([f2, f1_resized])
+#     f2_inter   = create_depthwise_conv_block(f2_inter, strides=1, kernel_size=3, BN=True, data_format=data_format)
     
-    return fmap1_out, fmap2_out, fmap3_out
+#     f2_inter_resized = MaxPooling2D()(f2_inter)
+#     f3_inter         = BiFPN()([f3, f2_inter_resized])
+#     f3_inter         = create_depthwise_conv_block(f3_inter, strides=1, kernel_size=3, BN=True, data_format=data_format)
+
+#     f3_inter_resized = MaxPooling2D()(f3_inter)
+#     f4_out           = BiFPN()([f4, f3_inter_resized])
+#     f4_out           = create_depthwise_conv_block(f4_out, strides=1, kernel_size=3, BN=True, data_format=data_format)
+
+#     f4_out_resized = tf.image.resize(f4_out, size=get_new_shape(f4_out, 2), method=RESIZE_METHOD)
+#     f4_out_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3, data_format=data_format)(f4_out_resized)
+#     f3_out         = BiFPN()([f3, f3_inter, f4_out_resized])
+#     f3_out         = create_depthwise_conv_block(f3_out, strides=1, kernel_size=3, BN=True, data_format=data_format)
+
+#     f3_out_resized = tf.image.resize(f3_out, size=get_new_shape(f3_out, 2), method=RESIZE_METHOD)
+#     f3_out_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3, data_format=data_format)(f3_out_resized)
+#     f2_out         = BiFPN()([f2, f2_inter, f3_out_resized])
+#     f2_out         = create_depthwise_conv_block(f2_out, strides=1, kernel_size=3, BN=True, data_format=data_format)
+
+#     f2_out_resized = f2_out#tf.image.resize(f2_out, size=get_new_shape(f2_out, 2), method=RESIZE_METHOD)
+#     f2_out_resized = SeparableConv2D(filters=filters, padding='same', kernel_size=3, data_format=data_format)(f2_out_resized)
+#     f1_out         = BiFPN()([f1, f2_out_resized])
+#     f1_out         = create_depthwise_conv_block(f1_out, strides=1, kernel_size=3, BN=True, data_format=data_format)
+
+#     return f1_out, f2_out, f3_out, f4_out
+
   
-def build_BiFPN_v2(fmap1, fmap2, fmap3, fmap4, filters=192):
-  with tf.name_scope("BiFPN_Layer"):
-    
-    fmap3_inter = BiFPN()([fmap4, fmap3])
-    fmap3_inter = create_sep_conv_block(fmap3_inter, filters=filters, kernel_size=3, num_layers=1)
-    
-    fmap2_inter = BiFPN()([fmap3_inter, fmap2])
-    fmap2_inter = create_sep_conv_block(fmap2_inter, filters=filters, kernel_size=3, num_layers=1)
-    
-    fmap1_out   = BiFPN()([fmap2_inter, fmap1])
-    fmap1_out   = create_sep_conv_block(fmap1_out, filters=filters, kernel_size=3, num_layers=1)
-    
-    fmap2_out   = BiFPN()([fmap2, fmap2_inter, fmap1_out])
-    fmap2_out   = create_sep_conv_block(fmap2_out, filters=filters, kernel_size=3, num_layers=1)
-    
-    fmap3_out   = BiFPN()([fmap3, fmap3_inter, fmap2_out])
-    fmap3_out   = create_sep_conv_block(fmap3_out, filters=filters, kernel_size=3, num_layers=1)
-    
-    fmap4_out   = BiFPN()([fmap4, fmap3_out])
-    fmap4_out   = create_sep_conv_block(fmap4_out, filters=filters, kernel_size=3, num_layers=1)
-    
-    return fmap1_out, fmap2_out, fmap3_out, fmap4_out
+# def build_BiFPN_v2(f1, f2, f3, f4, filters=192, data_format='channels_last', max_relu_val=None, BN=False, kernel_size=3):
 
-def create_pixor_det(input_shape=(800, 700, 35), 
-                     kernel_regularizer=None,
-                     downsample_factor=4,
-                     reg_channels=8):
-    '''
-        This architecture key differences:
-            
-        # Params: 3,969,031
-    '''
-    # K.clear_session()
-    
-    KERNEL_REG       = kernel_regularizer
-    KERNEL_SIZE      = {
-                         "Layer1": 7,
-                         "Block1": 3,
-                         "Block2": 3,
-                         "Block3": 3,
-                         "Block4": 3,
-                         "Header": 3,
-                         "Out": 1
-                       }
-    PADDING          = 'same'
-    FILTERS          = 256
-    CLASS_CHANNELS   = 1
-    OUT_KERNEL_SIZE  = 1
-    REGRESS_CHANNELS = reg_channels
-    BiFPN_filters    = 104
-    
-    inp = Input(shape=input_shape)
-    x   = inp
-    
-    with tf.name_scope("Backbone"):
-        with tf.name_scope("Block1"):
-            x = Conv2D(filters=FILTERS // 8, kernel_size=KERNEL_SIZE['Layer1'], padding=PADDING, kernel_regularizer=KERNEL_REG, use_bias=False)(x)
-            x = BatchNormalization(fused=True)(x)
-            x = ReLU()(x)
-            x = create_conv_block(x, filters=FILTERS // 8, kernel_size=KERNEL_SIZE['Block1'], num_layers=1)
-            block1_out = x
-            # Downsize twice
-            block1_out = AveragePooling2D()(block1_out)
-            block1_out = create_sep_conv_block(block1_out, FILTERS // 8, kernel_size=1, num_layers=1)
-            block1_out = AveragePooling2D()(block1_out)
-            block1_out = create_sep_conv_block(block1_out, FILTERS // 8, kernel_size=1, num_layers=1)
-            # change number of channels from X -> BiFPN channels            
-            block1_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block1_out)
-            block1_out = BatchNormalization(fused=True)(block1_out)
-            block1_out = ReLU()(block1_out)
-            
-        with tf.name_scope("Block2"):
-            #--------Downsampling--------#
-            x = MaxPooling2D()(x)
-            #--------Downsampling--------#
-            x = Conv2D(filters=FILTERS // 4, kernel_size=KERNEL_SIZE['Block2'], padding=PADDING, use_bias=False)(x)
-            x = BatchNormalization(fused=True)(x)
-            x = ReLU()(x)
-            x = create_conv_block(x, filters=FILTERS // 4, kernel_size=KERNEL_SIZE['Block2'], num_layers=1)
-            block2_out = x
-            # Downsize once
-            block2_out = AveragePooling2D()(block2_out)
-            block2_out = create_sep_conv_block(block2_out, FILTERS // 4, kernel_size=1, num_layers=1)
-            # change number of channels from X -> BiFPN channels
-            block2_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block2_out)
-            block2_out = BatchNormalization(fused=True)(block2_out)
-            block2_out = ReLU()(block2_out)
-            
-        with tf.name_scope("Block3"):
-            #--------Downsampling--------#
-            x = MaxPooling2D()(x)
-            #--------Downsampling--------#
-            x = Conv2D(filters=FILTERS // 2, kernel_size=KERNEL_SIZE['Block3'], padding=PADDING, use_bias=False)(x)
-            x = BatchNormalization(fused=True)(x)
-            x = ReLU()(x)
-            x = create_conv_block(x, filters=FILTERS // 2, kernel_size=KERNEL_SIZE['Block3'], num_layers=2)
-            block3_out = x
-            # change number of channels from X -> BiFPN channels
-            block3_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block3_out)
-            block3_out = BatchNormalization(fused=True)(block3_out)
-            block3_out = ReLU()(block3_out)
-            
-        with tf.name_scope("Block4"):
-            #--------Downsampling--------#
-            x = MaxPooling2D()(x)
-            #--------Downsampling--------#
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE['Block4'], padding=PADDING, use_bias=False)(x)
-            x = BatchNormalization(fused=True)(x)
-            x = ReLU()(x)
-            x = create_conv_block(x, filters=FILTERS // 1, kernel_size=KERNEL_SIZE['Block4'], num_layers=5)
-            block4_out = x
-            # upsmaple once
-            block4_out = tf.image.resize(block4_out, size=get_new_shape(block4_out, 2), method=RESIZE_METHOD)
-            block4_out = SeparableConv2D(filters=FILTERS // 1, kernel_size=1, padding=PADDING)(block4_out)
-            # change number of channels from X -> BiFPN channels
-            block4_out = Conv2D(filters=BiFPN_filters, kernel_size=1, padding=PADDING, use_bias=False)(block4_out)
-            block4_out = BatchNormalization(fused=True)(block4_out)
-            block4_out = ReLU()(block4_out)
-            
-    out1, out2, out3, out4 = block1_out, block2_out, block3_out, block4_out
-    out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
-    out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
-    out1, out2, out3, out4 = build_BiFPN_v2(out1, out2, out3, out4, filters=BiFPN_filters)
+#   def _sep_conv(x):
+#     x = SeparableConv2D(filters=filters, kernel_size=kernel_size, padding='same', use_bias=not BN, data_format=data_format)(x)
+#     if BN is True:
+#       x = BatchNormalization()(x)
+#     x = ReLU(max_value=max_relu_val)(x)
+#     return x
 
-    with tf.name_scope("FinalOutput"):
+#   with tf.name_scope("BiFPN_Layer"):
+
+#     f2_inter = BiFPN()([f1, f2])
+#     f2_inter = _sep_conv(f2_inter)
+
+#     f3_inter = BiFPN()([f3, f2_inter])
+#     f3_inter = _sep_conv(f3_inter)
+
+#     f4_out = BiFPN()([f4, f3_inter])
+#     f4_out = _sep_conv(f4_out)
+
+#     f3_out = BiFPN()([f3, f3_inter, f4_out])
+#     f3_out = _sep_conv(f3_out)
+
+#     f2_out = BiFPN()([f2, f2_inter, f3_out])
+#     f2_out = _sep_conv(f2_out)
+
+#     f1_out = BiFPN()([f1, f2_out])
+#     f1_out = _sep_conv(f1_out)
+
+#     return f1_out, f2_out, f3_out, f4_out
+
+
+def create_pixor_det(input_shape=(800, 700, 20), kr=tf.keras.regularizers.l1_l2(l1=5e-4, l2=5e-4), ki='he_normal', data_format=None):
+    def _cbr(t, filters, name, max_pool=False, batch_norm=True, kernel_size=3, max_relu_val=None):
+        with tf.name_scope(name):
+            if max_pool:
+                t = MaxPooling2D((2, 2), strides=2)(t)
+            t = Conv2D(filters, kernel_size=kernel_size, activation=None, padding='same', use_bias=not batch_norm, kernel_regularizer=kr, kernel_initializer=ki)(t)
+            if batch_norm:
+                t = BatchNormalization()(t)
+            t = ReLU(max_value=max_relu_val)(t)#Activation(swish)(t)#
+        return t
+
+    # tf.keras.utils.get_custom_objects().update({'swish': Activation(swish)})
+
+    input_tensor = Input(shape=input_shape)
+    x = input_tensor
+
+    # Block 1
+    with tf.name_scope('Block_1'):
+        x = _cbr(x, 32, "C1")
+        x = _cbr(x, 32, "C2")
+        b1_out = x
+        x = _cbr(x, 64, "MaxPool", max_pool=True)
+
+    # Block 2
+    with tf.name_scope('Block_2'):
+        x = _cbr(x, 64, "C1")
+        x = _cbr(x, 64, "C1")
+        b2_out = x
+        x = _cbr(x, 128, "MaxPool", max_pool=True)
+
+    # Block 3
+    with tf.name_scope('Block_3'):
+        for i in range(1, 4):
+            x = _cbr(x, 128, "C{}".format(i))
+        b3_out = x
+        x = _cbr(x, 256, "MaxPool", max_pool=True)
+
+    # Block 4
+    with tf.name_scope('Block_4'):
+        for i in range(1, 6):
+            x = _cbr(x, 256, "C{}".format(i))
+        b4_out = x
+
+    bifpn_filters = 180
+
+    # Aggregate feature maps
+    with tf.name_scope('Concatenation'):
       
-      concat = Concatenate(axis=-1)([out1, out2, out3, out4])
-      x = create_conv_block(concat, filters=BiFPN_filters, kernel_size=3, num_layers=3)
-      # x = Add()([x, concat])
+      b2_out = _cbr(b2_out, bifpn_filters, '', kernel_size=1)
+      b3_out = _cbr(b3_out, bifpn_filters, '', kernel_size=1)
+      b4_out = _cbr(b4_out, bifpn_filters, '', kernel_size=1)
       
-      obj        = Conv2D(CLASS_CHANNELS, kernel_size=OUT_KERNEL_SIZE, padding=PADDING, activation='sigmoid', name='objectness_map')(x)
-      geo        = Conv2D(REGRESS_CHANNELS, kernel_size=OUT_KERNEL_SIZE, padding=PADDING, name='geometric_map')(x)
-      out        = Concatenate(axis=-1, name='output_map')([obj, geo])
+      b2_out, b3_out, b4_out = _build_BiFPN_full_res(b2_out, b3_out, b4_out, filters=bifpn_filters, max_relu_val=None, weighted=False)
+      b2_out, b3_out, b4_out = _build_BiFPN_full_res(b2_out, b3_out, b4_out, filters=bifpn_filters, max_relu_val=None, weighted=False)
+      b2_out, b3_out, b4_out = _build_BiFPN_full_res(b2_out, b3_out, b4_out, filters=bifpn_filters, max_relu_val=None, weighted=False)
 
-    model = Model(inp, out)
-    return model
+      b2_out = AveragePooling2D()(b2_out)
+      b2_out = _cbr(b2_out, bifpn_filters, '')
+
+      b4_out = UpSampling2D()(b4_out)
+      b4_out = ZeroPadding2D(((0,0), (0,1)))(b4_out)
+      b4_out = _cbr(b4_out, bifpn_filters, '')
+
+      x = Concatenate(axis=-1)([b2_out, b3_out, b4_out])
+    #   x = Add()([b2_out, b3_out, b4_out])
+
+    # Head
+    with tf.name_scope('Head'):
+        x = _cbr(x, bifpn_filters, "C1")
+        for i in range(2, 5):
+            x = _cbr(x, bifpn_filters, "C{}".format(i), batch_norm=False)
+
+        obj_map = Conv2D(1, kernel_size=3, padding='same', activation='sigmoid', name='obj_map', kernel_regularizer=kr, kernel_initializer='glorot_normal')(x)
+        geo_map = Conv2D(11, kernel_size=3, padding='same', activation=None, name='geo_map', kernel_regularizer=kr, kernel_initializer='glorot_normal')(x)
+
+    return Model(inputs=input_tensor, outputs=[obj_map, geo_map])
+
 
 # model = create_pixor_det()
 # model.summary()
-# plot_model(
-#     model,
-#     to_file='lolo/model.png',
-#     show_shapes=False,
-#     show_layer_names=True,
-#     expand_nested=True,
-#     dpi=96
-# )

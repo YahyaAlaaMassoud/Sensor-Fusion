@@ -5,117 +5,77 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.python.keras.utils import Sequence
 import tensorflow.keras.backend as K
+import tensorflow as tf
+from tensorflow.keras.layers import Conv2D, Input, Concatenate, BatchNormalization, MaxPooling2D, AveragePooling2D, ReLU
+from tensorflow.keras.models import Model
 
-def create_pixor_pp(input_shape=(800, 700, 35), downsample_factor=4, kernel_regularizer=None):
-    K.clear_session()
-    
-    KERNEL_REG       = kernel_regularizer
-    KERNEL_SIZE      = 3
-    PADDING          = 'same'
-    FILTERS          = 256
-    MAXPOOL_SIZE     = 2
-    MAXPOOL_STRIDES  = None
-    DECONV_STRIDES   = 2
-    CLASS_CHANNELS   = 1
-    REGRESS_CHANNELS = 6
-    
-    inp = Input(shape=input_shape)
-    x   = inp
-    
-    with tf.name_scope("Backbone"):
-        with tf.name_scope("Block1"):
-            x = Conv2D(filters=FILTERS // 8, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 8, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            block1_out = x
-            block1_out = AveragePooling2D(pool_size=MAXPOOL_SIZE)(block1_out)
-            block1_out = AveragePooling2D(pool_size=MAXPOOL_SIZE)(block1_out)
-#             print("Block 1 output shape: " + str(block1_out.shape))
-        
-        with tf.name_scope("Block2"):
-            x = MaxPooling2D(pool_size=MAXPOOL_SIZE)(x)
-            x = Conv2D(filters=FILTERS // 8, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 4, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 4, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            block2_out = x
-            block2_out = AveragePooling2D(pool_size=MAXPOOL_SIZE)(block2_out)
-#             print("Block 2 output shape: " + str(block2_out.shape))
-            
-        with tf.name_scope("Block3"):
-            x = MaxPooling2D(pool_size=MAXPOOL_SIZE)(x)
-            x = Conv2D(filters=FILTERS // 4, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 2, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 2, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 2, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            block3_out = x
-#             print("Block 3 output shape: " + str(block3_out.shape))
-            
-        with tf.name_scope("Block4"):
-            x = MaxPooling2D(pool_size=MAXPOOL_SIZE)(x)
-            x = Conv2D(filters=FILTERS // 2, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            x = Conv2D(filters=FILTERS // 1, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-            x = BatchNormalization()(x)
-            x = ReLU()(x)
-            block4_out = x
-            block4_out = tf.image.resize(block4_out, size=(input_shape[0] // downsample_factor, 
-                                                           input_shape[1] // downsample_factor))
-#             print("Block 4 output shape: " + str(block4_out.shape))
-            
-    concat = Concatenate(axis=-1)([block1_out, block2_out, block3_out, block4_out])
-    
-    with tf.name_scope("Header"):
-        x = concat
-        x = Conv2D(filters=FILTERS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-        x = ReLU()(x)
-        x = Conv2D(filters=FILTERS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-        x = ReLU()(x)
-        x = Conv2D(filters=FILTERS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-        x = ReLU()(x)
-        x = Conv2D(filters=FILTERS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-        x = ReLU()(x)
-        x = Conv2D(filters=FILTERS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG)(x)
-        x = ReLU()(x)
-        
-        objectness_map = Conv2D(CLASS_CHANNELS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG, activation='sigmoid', name='objectness_map')(x)
-        geometric_map  = Conv2D(REGRESS_CHANNELS, kernel_size=KERNEL_SIZE, padding=PADDING, kernel_regularizer=KERNEL_REG, name='geometric_map')(x)
-        
-    output_map = Concatenate(axis=-1, name='output_map')([objectness_map, geometric_map])
-    model = Model(inp, output_map)
-    return model
 
-# model = create_pixor_pp((1000, 1000, 35))
+def create_pixor_pp(input_shape=(800, 700, 35), kr=None, ki='he_normal', data_format=None):
+    def _cbr(t, filters, name, max_pool=False, batch_norm=True):
+        with tf.name_scope(name):
+            if max_pool:
+                t = MaxPooling2D((2, 2), strides=2)(t)
+            t = Conv2D(filters, (3, 3), activation=None, padding='same', use_bias=not batch_norm, kernel_regularizer=kr, kernel_initializer=ki)(t)
+            if batch_norm:
+                t = BatchNormalization(momentum=0.99)(t)
+            t = ReLU()(t)
+        return t
+
+    input_tensor = Input(shape=input_shape)
+    x = input_tensor
+
+    # Block 1
+    with tf.name_scope('Block_1'):
+        x = _cbr(x, 32, "C1")
+        x = _cbr(x, 32, "C2")
+        b1_out = x
+        x = _cbr(x, 64, "MaxPool", max_pool=True)
+
+    # Block 2
+    with tf.name_scope('Block_2'):
+        x = _cbr(x, 64, "C1")
+        b2_out = x
+        x = _cbr(x, 128, "MaxPool", max_pool=True)
+
+    # Block 3
+    with tf.name_scope('Block_3'):
+        for i in range(1, 3):
+            x = _cbr(x, 128, "C{}".format(i))
+        b3_out = x
+        x = _cbr(x, 256, "MaxPool", max_pool=True)
+
+    # Block 4
+    with tf.name_scope('Block_4'):
+        for i in range(1, 6):
+            x = _cbr(x, 256, "C{}".format(i))
+        b4_out = x
+
+    # Aggregate feature maps
+    with tf.name_scope('Concatenation'):
+        # Downsample block 1 twice
+        b1_out = AveragePooling2D((2, 2), strides=2)(b1_out)
+        b1_out = AveragePooling2D((2, 2), strides=2)(b1_out)
+
+        # Downsample block 2
+        b2_out = AveragePooling2D((2, 2), strides=2)(b2_out)
+
+        # Upsample block 4
+        b4_out = tf.image.resize(b4_out, size=b3_out.shape[1:3])
+
+        x = Concatenate(axis=-1, name='Concat')([b1_out, b2_out, b3_out, b4_out])
+
+    # Head
+    with tf.name_scope('Head'):
+        x = _cbr(x, 256, "C1")
+        for i in range(2, 6):
+            x = _cbr(x, 256, "C{}".format(i), batch_norm=False)
+
+        obj_map = Conv2D(1, kernel_size=3, padding='same', activation='sigmoid', name='obj_map', kernel_regularizer=kr, kernel_initializer='glorot_normal')(x)
+        geo_map = Conv2D(8, kernel_size=3, padding='same', activation=None, name='geo_map', kernel_regularizer=kr, kernel_initializer='glorot_normal')(x)
+
+    return Model(inputs=input_tensor, outputs=[obj_map, geo_map])
+
+
+
+# model = create_pixor_pp((800, 700, 35))
 # model.summary()
