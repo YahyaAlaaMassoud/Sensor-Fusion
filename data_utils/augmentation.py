@@ -126,6 +126,8 @@ class PointCloudAugmenter:
 
     @staticmethod
     def keep_valid_data(gt_boxes_3d, pts_res, reflectance_res=None):
+        if pts_res.shape[1] != 3:
+            pts_res = pts_res.T
         ind = np.where((pts_res[:, 0] >= -40) & (pts_res[:, 0] <= 40) & (pts_res[:, 2] >= 0) & (pts_res[:, 2] <= 70))[0]
         pts_res = pts_res[ind, :]
         if reflectance_res is not None:
@@ -133,7 +135,8 @@ class PointCloudAugmenter:
 
         list_final_bb = []
         for bb in gt_boxes_3d:
-            if (-40 <= bb.x and bb.x <= 40) and (-1 <= bb.y and bb.y <= 2.5) and (0 <= bb.z and bb.z <= 70):
+            # print(bb.x, bb.y, bb.z)
+            if (-40 <= bb.x and bb.x <= 40) and (-1 < bb.y and bb.y < 2.5) and (0 <= bb.z and bb.z <= 70):
                 list_final_bb.append(bb)
 
         return pts_res, list_final_bb, reflectance_res
@@ -272,7 +275,7 @@ class PointCloudAugmenter:
                 r = rotation
             if translation is not None:
                 t = translation
-
+            
             rot = PointCloudAugmenter.rot_matrix_3d(0, r, 0)
             rot = np.dot(rot[0], np.dot(rot[1], rot[2]))
             pts[:, :3] = np.dot(rot, pts[:, :3].T).T + t

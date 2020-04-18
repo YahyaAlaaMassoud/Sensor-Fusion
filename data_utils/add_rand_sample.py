@@ -79,7 +79,7 @@ def check_point_side_2d(ax, ay, bx, by, pts_x, pts_y):
     return d
 
 
-def add_random_sample(num_samples=30, sort_desc=False, filter_wall_thresh=150, random_samples_dir='data_utils/aug_utils/annotations/cars/'):
+def add_random_sample(num_samples=30, sort=False, sort_desc=False, filter_wall_thresh=150, random_samples_dir='data_utils/aug_utils/annotations/cars/'):
 
     random_samples     = os.listdir(random_samples_dir)
     random_samples     = np.random.choice(random_samples, size=num_samples)
@@ -105,9 +105,10 @@ def add_random_sample(num_samples=30, sort_desc=False, filter_wall_thresh=150, r
             'box':      sample_box,
         })
 
-    samples = sorted(samples, 
-                     key=itemgetter('num_pts'),
-                     reverse=sort_desc)
+    if sort:
+        samples = sorted(samples, 
+                         key=itemgetter('num_pts'),
+                         reverse=sort_desc)
 
     lidar_src    = (0, 0)
     lidar_src_3d = (0, 0, 0)
