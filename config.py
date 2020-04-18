@@ -6,11 +6,21 @@ import deepdish as dd
 from datasets.kitti import ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY, SMALL_OBJECTS
 from models.pixor_det import create_pixor_det, BiFPN
 from models.det_exp import create_new_det
-from training_utils.losses import total_loss, smooth_l1_loss, binary_focal_loss, absolute_diff_loss
-from training_utils.metrics import objectness_metric, regression_metric
+from models.small_pixor_det import create_small_pixor_det
+from models.small_det import create_small_det
+from models.pixor_pp import create_pixor_pp
+from models.pixor_pp_obj import create_pixor_pp_obj
+from models.initializers import PriorProbability
+from models.efficient_det import create_efficient_det
+from models.activations import Swish
+from training_utils.losses import smooth_l1_loss, focal, abs_loss
+from training_utils.metrics import reg_metric
+from training_utils.lr_schedulers import CosineDecayRestarts, CosineDecay, const_lr, NoisyLinearCosineDecay
 from pixor_targets import PIXORTargets
 from encoding_utils.pointcloud_encoder import OccupancyCuboidKITTI
-from tensorflow.keras.optimizers import Adam, Adamax, SGD, RMSprop
+from tensorflow.keras.optimizers import Adam, Adamax, SGD, RMSprop, Adadelta
+from tensorflow.keras.layers import Activation
+
 
 configs = {
     'dataset_path': '/home/salam/datasets/KITTI/training', # absolute path
@@ -18,9 +28,10 @@ configs = {
     'phy_width': 70,
     'phy_height': 80,
     'phy_depth': 3.5,
-    'input_shape': (800, 700, 35),
-    'target_encoder': PIXORTargets,
-    'pc_encoder': OccupancyCuboidKITTI,
+    'input_shape': (400, 350, 20),
+    'target_encoder': PIXORTargets(shape=(200, 175), stats=dd.io.load('kitti_stats/stats.h5'),
+                                    P_WIDTH=70, P_HEIGHT=80, P_DEPTH=3.5, subsampling_factor=(0.8, 1.2)),
+    'pc_encoder': OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=3, df=[0.1, 0.1, 0.2], densify=True),
     'target_shape': (200, 175),
     'target_means': np.array([-6.4501972e-03, 
                               2.1161055e-02, 
@@ -37,41 +48,77 @@ configs = {
     'mean_height': 1.52,
     'mean_altitude': 1.71,
     'stats': dd.io.load('kitti_stats/stats.h5'),
-    'ckpts_dir': 'car_3bifpn_concat_aug_abs_densify',
+    'ckpts_dir': 'car_efficient_det',
     'training_target': CARS_ONLY, # one of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
-    'model_fn': create_pixor_det,
+    'model_fn': create_efficient_det,
     'losses': {
-        'output_map': total_loss(alpha=0.25, gamma=2.0, reg_loss_name='abs', reg_channels=8, weight=1.0, subsampling_flag=False),
+        'obj_map': focal(alpha=0.25, gamma=2., subsampling_flag=True, data_format='channels_last'),
+        'geo_map': smooth_l1_loss(sigma=3., reg_channels=11, data_format='channels_last'),
     },
     'metrics': {
-        'output_map': [objectness_metric(alpha=0.25, gamma=2.0, subsampling_flag=False),
-                       regression_metric(reg_loss_name='abs', reg_channels=8, weight=1.0, subsampling_flag=False)],
+        'geo_map': [
+                    reg_metric(0, 11),
+                    reg_metric(1, 11),
+                    reg_metric(2, 11),
+                    reg_metric(3, 11),
+                    reg_metric(4, 11),
+                    reg_metric(5, 11),
+                    reg_metric(6, 11),
+                    reg_metric(7, 11),
+                    reg_metric(8, 11),
+                    reg_metric(9, 11),
+                    reg_metric(10, 11),
+                   ],
     },
     'callbacks': [],
-    'optimizer': Adam,
-    'experiment_name': '/car_3bifpn_concat_aug_abs_densify',
-    'start_epoch': 0,
-    'use_pretrained': False,
-    'last_ckpt_json': 'outputs/car_bifpn_v2_add_branches/car_bifpn_v2_add_branches_epoch_28.json', # absolute path
-    'last_ckpt_h5': 'outputs/car_bifpn_v2_add_branches/car_bifpn_v2_add_branches_epoch_28.h5', # absolute path
-    'custom_objects': {'BiFPN': BiFPN}, # Dict as {'BiFPN': BiFPN}
+    'optimizer': RMSprop,
+    'experiment_name': '/car_efficient_det',
+    'start_epoch': 1,
+    'use_pretrained': True,
+    'last_ckpt_json': 'outputs/car_efficient_det/car_efficient_det_epoch_1.json', # absolute path
+    'last_ckpt_h5': 'outputs/car_efficient_det/car_efficient_det_epoch_1.h5', # absolute path
+    'custom_objects': {'BiFPN': BiFPN, 'PriorProbability': PriorProbability, 'Swish': Swish}, # Dict as {'BiFPN': BiFPN}
     'current_file_name': __file__,
-    'warmup': True,
-    'warmup_min': 0.0001,
-    'warmup_max': 0.001,
-    'warmup_epochs': 3,
-    
+    'stable': 0.0001,
+    'schedule1': const_lr(1e-4), # CosineDecay(initial_learning_rate=1e-8, decay_steps=1800, alpha=1e6),
+    'schedule2': const_lr(1e-4), #CosineDecay(initial_learning_rate=1e-3, decay_steps=20000, alpha=0.1),
+    'warmup_steps': 1856 * 1,
+    'data_format': 'channels_last',
+    'vis_every': 1856, # 12691
+
     'hyperparams': {
         'batch_size': 2,
-        'lr': 0.0001,
-        'epochs': 1000,
-        'num_threads': 8,
-        'max_q_size': 15,
+        'lr': 0.1,
+        'epochs': 100000,
+        'num_threads': 4,
+        'max_q_size': 2,
         'validate_every': 1000,
         'ckpt_every': 1,
         'n_val_samples': 300,
         'map_every': 5000,
     },
-    
-    'notes': 'w/ augmentations | gamma=2.0 | point cloud encoder (points under points) | 3 bifpns | 104 channels bifpns | out1 concatenated with out of bifpns'
+
+    'chosen_ids': [
+        '000040',
+        '000042',
+        '000047',
+        '000048',
+        '000050',
+        '000052',
+        '000053',
+        '000058',
+        '000059',
+        '000061',
+        '000062',
+        '000063',
+        '000065',
+        '000066',
+        '000076',
+    ],
+
+    'notes': '''
+        without random sampling augmentation
+        with 0.5 change random augmentation selected
+        weighted BiFPN
+    '''
 }
