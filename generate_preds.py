@@ -13,12 +13,15 @@ import matplotlib.pyplot as plt
 import tensorflow.keras.backend as K
 import gc
 import tensorflow as tf
+import datetime
 
+from timeit import default_timer as timer
 from numba import cuda
 from pixor_utils.model_utils import load_model
-from training_utils.losses import total_loss
-from training_utils.metrics import objectness_metric, regression_metric
+from training_utils.losses import focal, smooth_l1_loss
+# from training_utils.metrics import objectness_metric, regression_metric
 from models.pixor_det import BiFPN
+from models.initializers import PriorProbability
 from datasets.kitti import KITTI, ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLISTS_ONLY, SMALL_OBJECTS
 from encoding_utils.pointcloud_encoder import OccupancyCuboidKITTI
 from pixor_targets import PIXORTargets
@@ -62,14 +65,14 @@ def generate_preds(model, kitti_reader, pc_encoder, target_encoder, frame_ids, e
     os.system('cp -r {0} {1}'.format(os.getcwd() + '/' + ckpts_dir + exp_name, '/home/yahyaalaa/Yahya/kitti_dev/eval_kitti/build/results/'))
     os.system('cd eval_kitti/build/ && ./evaluate_object {0} {1}'.format(exp_name[1:], split))
 
-def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids, epoch, ckpts_dir, exp_id, n_threads=4, max_queue_size=8, split='val'):
+def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids, epoch, ckpts_dir, exp_id, n_threads=8, max_queue_size=16, split='val'):
     
     exp_name = '/{0}-{1}-split-epoch-{2}'.format(exp_id, split, epoch)
     exp_path = ckpts_dir + exp_name + '/data/'
     
     os.makedirs(exp_path, exist_ok=True)
     
-    batch_size = 8
+    batch_size = 2
     val_gen = PredictionGenerator(reader=kitti_reader, frame_ids=frame_ids, batch_size=batch_size,
                                   pc_encoder=pc_encoder, n_threads=n_threads, max_queue_size=max_queue_size)
     val_gen.start()
@@ -81,7 +84,15 @@ def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids
         batch = val_gen.get_batch()
         frames, encoded_pcs = batch['frame_ids'], batch['encoded_pcs']
         for i in range(encoded_pcs.shape[0]):
-            outmap = np.squeeze(model.predict_on_batch(np.expand_dims(encoded_pcs[i], axis=0)).numpy())
+            start = datetime.datetime.now()
+            outmap = model.predict_on_batch(np.expand_dims(encoded_pcs[i], axis=0))
+            end = datetime.datetime.now()
+            print(int((end-start).total_seconds() * 1000))
+            # print(outmap.shape)
+            obj = outmap[0]#.numpy()
+            geo = outmap[1]#.numpy()
+            outmap = np.concatenate((obj, geo), axis=-1)
+            print('outmap.shape', outmap.shape)
             pred_boxes.append({
                 'frame': frames[i],
                 'outmap': outmap,
@@ -97,7 +108,7 @@ def generate_preds_v2(model, kitti_reader, pc_encoder, target_encoder, frame_ids
     cuda.get_current_device().reset()
     print('deleted model')
 
-    nms_threads = 16
+    nms_threads = 8
     gen = NMSGenerator(reader=kitti_reader, target_encoder=target_encoder, preds=pred_boxes, exp_path=exp_path, n_threads=nms_threads)
     gen.start()
     new_size = 0
@@ -223,9 +234,9 @@ def main():
     train_ids = kitti.get_ids('train')
     val_ids = kitti.get_ids('val')
 
-    pc_encoder     = OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=2.5, df=0.1, densify=True)
+    pc_encoder     = OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=3, df=[0.1, 0.1, 0.2], densify=True)
     target_encoder = PIXORTargets(shape=TARGET_SHAPE,
-                                  stats=dd.io.load('kitti_stats/stats.h5'),
+                                  stats=dd.io.load('kitti_stats/stats.h5'), subsampling_factor=(0.8, 1.2),
                                   P_WIDTH=P_WIDTH, P_HEIGHT=P_HEIGHT, P_DEPTH=P_DEPTH)
     #--------------------------------------#
     #----------------KITTI-----------------#
@@ -234,35 +245,34 @@ def main():
     #--------------------------------------#
     #-----------RUN UNIT TESTS-------------#
     #--------------------------------------#
-    os.system('clear')
-    rand_idx = np.random.randint(0, len(train_ids))
-    test_id  = train_ids[rand_idx]
-    pts, _ = kitti.get_velo(test_id, use_fov_filter=False)
-    test_pc_encoder(pc_encoder, pts.T)
-    boxes = kitti.get_boxes_3D(test_id)
-    test_target_encoder(target_encoder, boxes)
+    # os.system('clear')
+    # rand_idx = np.random.randint(0, len(train_ids))
+    # test_id  = train_ids[rand_idx]
+    # pts, _ = kitti.get_velo(test_id, use_fov_filter=False)
+    # test_pc_encoder(pc_encoder, pts.T)
+    # boxes = kitti.get_boxes_3D(test_id)
+    # test_target_encoder(target_encoder, boxes)
     #--------------------------------------#
     #-----------RUN UNIT TESTS-------------#
     #--------------------------------------#
 
     for key, val in chkpts_map.items():
         if len(val) > 0:
-            model = load_model(val['json'], val['h5'], {'BiFPN': BiFPN})
-            optimizer = Adam(lr=0.0001)
-            losses = {
-                    'output_map': total_loss(alpha=0.25, gamma=2.0, reg_loss_name='abs', reg_channels=8, weight=1.0, subsampling_flag=False)
-                    }
-            metrics = {
-                    'output_map': [objectness_metric(alpha=0.25, gamma=2.0, subsampling_flag=False),
-                                   regression_metric(reg_loss_name='abs', reg_channels=8, weight=1.0, subsampling_flag=False)],
-                    }
+            model = load_model(val['json'], val['h5'], {'BiFPN': BiFPN, 'PriorProbability': PriorProbability})
+            # optimizer = Adam(lr=0.0001)
+            # losses = {
+            #         # 'obj_map': focal(alpha=0.75, gamma=1., subsampling_flag=False, data_format='channels_last'),
+            #         # 'geo_map': smooth_l1_loss(sigma=3., reg_channels=8, data_format='channels_last'),
+            #         }
+            # metrics = {
+            #         }
 
             for layer in model.layers:
                 layer.trainable = False
 
-            model.compile(optimizer=optimizer,
-                            loss=losses,
-                            metrics=metrics)
+            # model.compile(optimizer=optimizer,
+            #                 loss=losses,
+            #                 metrics=metrics)
 
             model.summary()
 

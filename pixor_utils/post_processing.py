@@ -31,7 +31,7 @@ def iou_bev(axis_aligned=False):
 def dist_bev(box_1, box_2):
     return - np.sqrt((box_1.x - box_2.x) ** 2 + (box_1.z - box_2.z) ** 2)
 
-def nms_bev(nms_type, thresh, max_boxes=100, min_hit=0, axis_aligned=False):
+def nms_bev(nms_type, thresh, max_boxes=50, min_hit=5, axis_aligned=False):
     if nms_type not in ['iou', 'dist']:
         return None
 
@@ -42,8 +42,8 @@ def nms_bev(nms_type, thresh, max_boxes=100, min_hit=0, axis_aligned=False):
 
     def nms(boxes):
         boxes.sort(key=lambda box: box.confidence, reverse=True)
-        if len(boxes) > 800:
-            boxes = boxes[:800]
+        # if len(boxes) > 800:
+        #     boxes = boxes[:800]
         filtered_boxes = []
 
         while len(boxes) > 0 and len(filtered_boxes) < max_boxes:
@@ -65,7 +65,7 @@ def nms_bev(nms_type, thresh, max_boxes=100, min_hit=0, axis_aligned=False):
             
             # Add box with highest confidence to output list
             if hits >= min_hit:
-                filtered_boxes += [top_box]
+                filtered_boxes.append(top_box)
 
         return filtered_boxes
     

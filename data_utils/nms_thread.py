@@ -23,7 +23,7 @@ class NMSThread(threading.Thread):
 
         self.stop_flag = False
 
-        self.nms = nms_bev('dist', -1.5)
+        self.nms = nms_bev('dist', -2.3)
 
     def apply_nms(self):
         # print('I began applying NMS!')
@@ -42,7 +42,7 @@ class NMSThread(threading.Thread):
         self.stop_flag = True
         self.done.append(0)
         # print('I am done!')
-    
+
     def run(self):
         self.apply_nms()
 
