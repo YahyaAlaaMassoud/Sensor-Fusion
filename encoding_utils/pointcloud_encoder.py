@@ -19,7 +19,7 @@ class PointCloudEncoder(ABC):
         physical_dim = np.abs(x_min) + np.abs(x_max), np.abs(y_min) + np.abs(y_max), np.abs(z_min) + np.abs(z_max)
         self.physical_width, self.physical_length, self.physical_height = physical_dim
         
-        self.cube_width, self.cube_length, self.cube_height = int(self.physical_width / df), int(self.physical_length / df), int(self.physical_height / df)
+        self.cube_width, self.cube_length, self.cube_height = int(self.physical_width / df[0]), int(self.physical_length / df[1]), int(self.physical_height / df[2])
         
         self.qf = np.array([self.cube_width / self.physical_width, 
                             self.cube_length / self.physical_length, 
@@ -52,13 +52,17 @@ class OccupancyCuboidKITTI(PointCloudEncoder):
             ones = []
             for i in iz:
                 arr = np.zeros((self.cube_height))
-                arr[:i] = 1.
+                # arr[:i] = 1. #corrent encoding
+                arr[i:] = 1.
                 ones.append(arr)
             occupancy_grid[iy, ix] = np.array(ones)
         else:
             occupancy_grid[iy, ix, iz] = 1.
         
         return occupancy_grid
+    
+    def encode_batch(self, pc_batch):
+        return np.array([self.encode(pc) for pc in pc_batch])
     
     def get_output_shape(self):
         return self.cube_length, self.cube_width, self.cube_height
