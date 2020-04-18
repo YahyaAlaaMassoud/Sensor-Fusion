@@ -12,7 +12,7 @@ import open3d as o3d
 from core import transforms_3D, transforms_2D
 from core.boxes import Box2D, Box3D, get_corners_3D
 
-matplotlib.use('tkagg')
+matplotlib.use('pdf')
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -49,17 +49,17 @@ def imsave(img, path):
     cv2.imwrite(path, img * 255.0)
 
 
-def imshow(img, scale=15, block=True):
+def imshow(img, scale=15, block=False):
     fig, ax = plt.subplots()
-    ar = img.shape[0] / img.shape[1]  # aspect_ratio = h / w
-    fig.set_size_inches(scale, scale * ar)
+    # ar = img.shape[0] / img.shape[1]  # aspect_ratio = h / w
+    # fig.set_size_inches(scale, scale * ar)
 
     ax.imshow(img)
-    ax.get_xaxis().set_visible(False)
-    ax.get_yaxis().set_visible(False)
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
 
-    fig.tight_layout()
-    plt.show(block=block)
+    # fig.tight_layout()
+    plt.show()
 
 
 def range_view(img, P2=None, gt_boxes=None, pred_boxes=None):
@@ -109,15 +109,19 @@ def bev(pts=None, gt_boxes=None, pred_boxes=None, scale=10, title=None, circles=
         pts = pts.astype(np.int)
         canvas[pts[1], pts[0]] = 1
 
-    def draw_boxes(boxes, color_dict):
+    def draw_boxes(boxes, color_dict, pred=False):
         for box in boxes:
             color = color_dict.get(box.cls, DEFAULT_COLOR)
+            if pred:
+                color = [1., 0., 0.]
+            else:
+                color = [0., 1., 0.]
             corners = box.get_bev_box()
             corners = transforms_2D.transform(H, corners)
             for start, end in BOX_CONNECTIONS_2D:
                 x1, y1 = corners[:, start]
                 x2, y2 = corners[:, end]
-                cv2.line(canvas, (x1, y1), (x2, y2), color, 1, cv2.LINE_AA)
+                cv2.line(canvas, (x1, y1), (x2, y2), color, 3, cv2.LINE_AA)
 
             # Draw arrow from center to front face
             cx, cy = np.mean(corners, axis=1)
@@ -139,9 +143,9 @@ def bev(pts=None, gt_boxes=None, pred_boxes=None, scale=10, title=None, circles=
 
     # boxes
     if gt_boxes is not None:
-        draw_boxes(gt_boxes, GT_COLORS)
+        draw_boxes(gt_boxes, GT_COLORS, pred=False)
     if pred_boxes is not None:
-        draw_boxes(pred_boxes, PRED_COLORS)
+        draw_boxes(pred_boxes, PRED_COLORS, pred=True)
 
     # Title
     if title is not None and len(title) > 0:

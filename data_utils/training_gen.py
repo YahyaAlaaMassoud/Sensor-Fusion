@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 class Training_Generator_Thread(threading.Thread):
     def __init__(self, queue, max_queue_size, reader, frame_ids, batch_size, pc_encoder, target_encoder, verbose=False):
-        super(Training_Generator_Thread, self).__init__()
+        threading.Thread.__init__(self)
         self.daemon = True
 
         self.queue = Queue()
@@ -30,55 +30,56 @@ class Training_Generator_Thread(threading.Thread):
         self.stop_flag = False
         self.batch_count = int(np.ceil(len(self.frame_ids) / self.batch_size))
         
-        self.add_random_sample = add_random_sample()
+        self.add_random_sample = add_random_sample(num_samples=35, sort_desc=True, filter_wall_thresh=200)
         self.augmentations_dict = {
             'per_box_dropout': PointCloudAugmenter.per_box_dropout(0.1),
             'flip_along_x': PointCloudAugmenter.flip_along_x(),
-            'per_box_rot_trans': PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 15., translation_range=0.25),
+            'per_box_rot_trans': PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 15., translation_range=0.15),
             'scale': PointCloudAugmenter.scale(),
-            'rotate': PointCloudAugmenter.rotate_translate(rotation=45. * np.pi / 180., translation=0),
-            'translate': PointCloudAugmenter.rotate_translate(rotation=0, translation=0.6),
+            'rotate': PointCloudAugmenter.rotate_translate(rotation_range=20. * np.pi / 180., translation_range=0),
+            # 'translate': PointCloudAugmenter.rotate_translate(rotation_range=0, translation_range=0.75),
             'global_dropout': PointCloudAugmenter.global_background_dropout(0.1),
-            'cut_flip_stich': PointCloudAugmenter.cut_flip_stitch(),
         }
         
         self.augmentations_arr = [
                                 PointCloudAugmenter.per_box_dropout(0.1), 
                                 PointCloudAugmenter.flip_along_x(),
-                                PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 15., translation_range=0.25),
+                                PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 15., translation_range=0.1),
                                 PointCloudAugmenter.scale(), 
-                                PointCloudAugmenter.rotate_translate(rotation=45. * np.pi / 180., translation=0),
-                                PointCloudAugmenter.rotate_translate(rotation=0, translation=0.6),
+                                PointCloudAugmenter.rotate_translate(rotation_range=20. * np.pi / 180., translation_range=0),
+                                # PointCloudAugmenter.rotate_translate(rotation_range=0, translation_range=0.75),
                                 PointCloudAugmenter.global_background_dropout(0.1),
-                                PointCloudAugmenter.cut_flip_stitch(),
+                                # PointCloudAugmenter.cut_flip_stitch(),
                              ]
-        
+
         self.verbose = verbose
         
-    def __rand_aug(self, pts, gt_boxes_3D, ref=None, aug_prob=0.5):
+    def rand_aug(self, pts, gt_boxes_3D, ref=None, aug_prob=0.5):
         if pts.shape[1] != 3:
             pts = pts.T
         
         if np.random.uniform() < aug_prob:
-            number_of_augs = np.random.randint(low=1, high=len(self.augmentations_arr) // 2 + 1)
-            augs_ids       = np.random.choice(len(self.augmentations_arr), 
-                                                size=number_of_augs, 
-                                                replace=False)
-            for id in augs_ids:
-                pts, gt_boxes_3D, _ = self.augmentations_arr[id](gt_boxes_3D, pts)
+            number_of_augs = np.random.randint(low=1, high=len(self.augmentations_arr))
+            # augs_ids       = np.random.choice(len(self.augmentations_arr), 
+            #                                     size=number_of_augs, 
+            #                                     replace=False)
+            # for id in augs_ids:
+            #     pts, gt_boxes_3D, _ = self.augmentations_arr[id](gt_boxes_3D, pts)
+                # print(self.augmentations_arr[id].__name__)
+            pts, gt_boxes_3D, _ = self.augmentations_arr[number_of_augs](gt_boxes_3D, pts)
             pts, gt_boxes_3D, _ = PointCloudAugmenter.keep_valid_data(gt_boxes_3D, pts)
         return pts, ref, gt_boxes_3D
 
-    def __sequence_aug(self, pts, gt_boxes_3D, ref=None, aug_prob=0.85):
+    def sequence_aug(self, pts, gt_boxes_3D, ref=None, aug_prob=0.85):
         if pts.shape[1] != 3:
             pts = pts.T
         seq = [
                 ('per_box_rot_trans', 1.), 
                 ('flip_along_x', 0.5),
-                ('rotate', 1.),
+                # ('rotate', 1.),
                 ('scale', 1.),
-                ('translate', 1.),
-                # ('global_dropout', 0.5), # per_box
+                # ('translate', 1.),
+                ('global_dropout', 0.1), # per_box
         ]
 
         if np.random.uniform() < aug_prob:
@@ -105,20 +106,22 @@ class Training_Generator_Thread(threading.Thread):
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
 
             if len(gt_boxes_3D) > 1:
-                # print('before rand sam', pts.shape)
-                pts, gt_boxes_3D, _ = self.add_random_sample(gt_boxes_3D, pts)
-                # print(selected_frame_ids)
-                # print('after rand sam', pts.shape)
-                # print('----------------------')
+                if np.random.uniform() < 0.9:
+                    # print('before', len(gt_boxes_3D))
+                    # print('before rand sam', pts.shape)
+                    pts, gt_boxes_3D, _ = self.add_random_sample(gt_boxes_3D, pts)
+                    # print(selected_frame_ids)
+                    # print('after rand sam', pts.shape)
+                    # print('after', len(gt_boxes_3D))
 
-            # pts, _, gt_boxes_3D = self.__sequence_aug(pts, gt_boxes_3D)
-            # print('before aug', pts.shape)
-            pts, _, gt_boxes_3D = self.__rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
-            # print('after aug', pts.shape)
+            # pts, _, gt_boxes_3D = self.sequence_aug(pts, gt_boxes_3D, aug_prob=0.5)
+            # # print('before aug', pts.shape)
+            pts, _, gt_boxes_3D = self.rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
+            # # print('after aug', pts.shape)
 
             if pts.shape[1] != 3:
                 pts = pts.T
-            
+
             batch['encoded_pcs'][i]     = self.pc_encoder.encode(pts)
             batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
 
@@ -159,7 +162,9 @@ class TrainingGenerator:
                                                batch_size=batch_size)
             self.batch_count += thread.batch_count
             self.threads += [thread]
-
+        
+        print(len(self.threads))
+        
     def get_batch(self):
         for _ in range(100):
             for thread in self.threads:
@@ -175,8 +180,12 @@ class TrainingGenerator:
 
     def start(self):
         for thread in self.threads:
+            print('thread started')
             thread.start()
 
     def stop(self):
-        for thead in self.threads:
-            thead.stop_flag = True
+        for thread in self.threads:
+            thread.stop_flag = True
+            thread.queue = None
+            thread = None
+        self.threads = None
