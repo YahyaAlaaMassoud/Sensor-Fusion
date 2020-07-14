@@ -1,6 +1,7 @@
 import os
 
 import imagesize
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -9,7 +10,6 @@ import cv2
 
 from core.boxes import Box2D, Box3D
 from core.transforms_3D import transform, project
-from utils.point_cloud import fov_filter
 
 # Constants
 IMG_WIDTH, IMG_HEIGHT = 1242, 375
@@ -68,7 +68,7 @@ class KITTI:
         return get_boxes_3D(path=os.path.join(self.label_dir, t + ".txt"),
                             class_to_group=self.class_to_group)
 
-    def get_velo(self, t, workspace_lim=((-40, 40), (-1, 2.5), (0, 70)), use_fov_filter=True):
+    def get_velo(self, t, workspace_lim=((-40, 40), (-1, 2.5), (0, 70)), use_fov_filter=False):
         pts, reflectance = get_velo(path=os.path.join(self.velo_dir, t + '.bin'),
                                     calib_path=os.path.join(self.calib_dir, t + '.txt'),
                                     workspace_lim=workspace_lim,
@@ -131,7 +131,7 @@ def get_velo(path, calib_path, workspace_lim=((-40, 40), (-1, 2.5), (0, 70)), us
     pts = transform(np.dot(R0, V2C), pts)
 
     # Remove points out of workspace
-    pts = box_filter(pts, workspace_lim, decorations=reflectance)
+    pts, reflectance = box_filter(pts, workspace_lim, decorations=reflectance)
 
     # Remove points not projecting onto the image plane
     if use_fov_filter:
@@ -164,8 +164,14 @@ def get_calib(path):
     return V2C, R0, P2
 
 
-def range_view(img, P2=None, gt_boxes=None, pred_boxes=None, scale=1.0, title='', ax=None, save_path=None):
-    img = np.copy(img)  # Clone
+def range_view(img=None, pts=None, ref=None, P2=None, gt_boxes=None, pred_boxes=None, out_type=None):
+    if out_type not in ['depth', 'intensity', 'height']:
+        return None
+
+    if img is not None:
+        img = np.copy(img)  # Clone
+    else:
+        img = np.zeros((375, 1242, 3))
 
     def draw_boxes_2D(boxes, color):
         for box in boxes:
@@ -184,27 +190,52 @@ def range_view(img, P2=None, gt_boxes=None, pred_boxes=None, scale=1.0, title=''
             draw_boxes_2D(gt_boxes, GT_COLOR)
         elif isinstance(gt_boxes[0], Box3D):
             draw_boxes_3D(gt_boxes, GT_COLOR)
+    
+    if pts is not None:
+        if out_type == 'depth':
+            val, start = 70. / 5., 0.
+            cvals = []
+            for i in range(6):
+                cvals.append(start + i * val)
+            colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # depth 
+            norm = plt.Normalize(0, 70) # depth 
+        elif out_type == 'intensity':
+            val, start = 1. / 5., 0.0
+            cvals = []
+            for i in range(6):
+                cvals.append(start + i * val)
+            colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # intensity
+            norm = plt.Normalize(0, 1.0) # intensity
+        elif out_type == 'height':
+            val, start = 4. / 5., -1
+            cvals = []
+            for i in range(6):
+                cvals.append(start + i * val)
+            colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # height
+            colors = colors[::-1]
+            norm = plt.Normalize(-1, 3.0) # height
 
-    if save_path is not None:
-        if save_path == '#RAW':
-            return img
-        else:
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            cv2.imwrite(save_path, img * 255.0)
-            return img
-    else:
-        fig = None
-        if ax is None:
-            fig, ax = plt.subplots()
-            fig.set_size_inches(scale * 8, scale * 3)
+        tuples = list(zip(map(norm, cvals), colors))
+        cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
 
-        ax.imshow(img)
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
-        fig.tight_layout()
+        pts_projected = project(P2, pts).astype(np.int32).T
+        for i in range(pts_projected.shape[0]):
+            if out_type == 'depth':
+                clr = cmap(pts.T[i][2] / 70.) # depth 
+            elif out_type == 'intensity':
+                clr = cmap(ref.T[i][0]) # intensity
+            elif out_type == 'height':
+                clr = cmap((pts.T[i][1] + 1.) / 4.) # height
+            cv2.circle(img, (pts_projected[i][0], pts_projected[i][1]), 5, (clr[0], clr[1], clr[2]), -1)
 
-        if fig is not None:
-            plt.show()
+        # window_sz = 1
+        # for i in range(img.shape[0]):
+        #     for j in range(img.shape[1]):
+        #         if np.sum(img[i,j]) <= 0.0:
+        #             if i - window_sz >= 0 and j - window_sz >= 0 and i + window_sz <= img.shape[0] and j + window_sz <= img.shape[1]:
+        #                 img[i,j] = np.sum(img[i-window_sz:i+window_sz,j-window_sz:j+window_sz], axis=(0,1)) / (window_sz * 2)**2.
+
+    return img
 
 
 def bev(pts=None, gt_boxes=None, pred_boxes=None, scale=1.0, title='', ax=None, save_path=None):
@@ -216,9 +247,16 @@ def open3d(pts=None):
 
 def box_filter(pts, box_lim, decorations=None):
     x_range, y_range, z_range = box_lim
-    mask = ((pts[0] >= x_range[0]) & (pts[0] <= x_range[1]) &
-            (pts[1] >= y_range[0]) & (pts[1] <= y_range[1]) &
-            (pts[2] >= z_range[0]) & (pts[2] <= z_range[1]))
+    mask = ((pts[0] > x_range[0]) & (pts[0] < x_range[1]) &
+            (pts[1] > y_range[0]) & (pts[1] < y_range[1]) &
+            (pts[2] > z_range[0]) & (pts[2] < z_range[1]))
     pts = pts[:, mask]
-    return pts
+    decorations = decorations[:, mask]
+    return pts, decorations
 
+def fov_filter(pts, P, img_size, decorations=None):
+    pts_projected = project(P, pts)
+    mask = ((pts_projected[0] >= 0) & (pts_projected[0] <= img_size[1]) &
+            (pts_projected[1] >= 0) & (pts_projected[1] <= img_size[0]))
+    pts = pts[:, mask]
+    return pts if decorations is None else pts, decorations[:, mask]
