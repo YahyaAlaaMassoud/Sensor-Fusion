@@ -111,16 +111,38 @@ def create_depthwise_conv_block(input_tensor, kernel_size, strides, BN=True, dat
     x = ReLU(max_value=max_relu_val)(x)
   return x 
 
-def create_res_conv_block(input_tensor, filters, kernel_size, BN=True, data_format='channels_last', max_relu_val=None):
+def create_res_conv_block(input_tensor, filters, kernel_size, first_of_block=False, BN=True, data_format='channels_last', max_relu_val=None):
+  # https://github.com/raghakot/keras-resnet
+
   last_input = input_tensor
+  if input_tensor.get_shape()[-1] != filters:
+    strides = 1
+    if first_of_block:
+      strides = 2
+    last_input = Conv2D(filters=filters,
+                        kernel_size=1,
+                        strides=strides)(last_input)
+
   x = input_tensor
-  x = Conv2D(filters=filters, kernel_size=kernel_size, padding='same', use_bias=not BN, data_format=data_format)(x)
-  if BN is True:
-      if data_format == 'channels_first':
-        x = BatchNormalization(axis=1)(x)
-      else:
-        x = BatchNormalization(axis=-1)(x)
-  x = ReLU(max_value=max_relu_val)(x)
+
+  for _ in range(2):
+    if BN is True:
+        if data_format == 'channels_first':
+          x = BatchNormalization(axis=1)(x)
+        else:
+          x = BatchNormalization(axis=-1)(x)
+    x = ReLU(max_value=max_relu_val)(x)
+    strides = 1
+    if first_of_block:
+      strides = 2
+      first_of_block = False
+    x = Conv2D(filters=filters, 
+               kernel_size=kernel_size, 
+               padding='same',
+               use_bias=not BN,
+               strides=strides,
+               data_format=data_format)(x)
+  
   return Add()([x, last_input])
 
 def create_res_sep_conv_block(input_tensor, filters, kernel_size, BN=True, data_format='channels_last', max_relu_val=None):
@@ -205,7 +227,7 @@ def deep_fuse_layer(inputs, filters, kernel_size, strides):
 
   conv_list = []
   for _ in range(len(inputs)):
-    conv_list.append(conv_block(avg, filters, kernel_size, strides))
+    conv_list.append(create_res_conv_block(avg, filters, kernel_size, strides))
 
   return conv_list
 
