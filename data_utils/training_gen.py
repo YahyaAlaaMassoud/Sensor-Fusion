@@ -96,12 +96,16 @@ class Training_Generator_Thread(threading.Thread):
         # start = timeit.default_timer()
         batch = {'frame_ids': selected_frame_ids,
                  'encoded_pcs': np.zeros(shape=(len(selected_frame_ids),) + self.pc_encoder.get_output_shape(), dtype=np.float32),
-                 'encoded_targets': np.zeros(shape=(len(selected_frame_ids),) + self.target_encoder.get_output_shape(), dtype=np.float32)}
+                 'encoded_targets': np.zeros(shape=(len(selected_frame_ids),) + self.target_encoder.get_output_shape(), dtype=np.float32),
+                 'rgb_img': np.zeros(shape=(len(selected_frame_ids),) + self.reader.get_img_shape(), dtype=np.float32),
+                 'depth_map': np.zeros(shape=(len(selected_frame_ids),) + self.reader.get_img_shape(), dtype=np.float32),
+                 'intensity_map': np.zeros(shape=(len(selected_frame_ids),) + self.reader.get_img_shape(), dtype=np.float32),
+                 'height_map': np.zeros(shape=(len(selected_frame_ids),) + self.reader.get_img_shape(), dtype=np.float32),}
 
         start = timeit.default_timer()
         for i in range(len(selected_frame_ids)):
             # Input
-            pts, _ = self.reader.get_velo(selected_frame_ids[i], use_fov_filter=False)  # Load velo
+            pts, ref = self.reader.get_velo(selected_frame_ids[i], workspace_lim=((-40, 40), (-1, 3), (0, 70)), use_fov_filter=True)  # Load velo
             # Output
             gt_boxes_3D = self.reader.get_boxes_3D(selected_frame_ids[i])
 
@@ -116,7 +120,7 @@ class Training_Generator_Thread(threading.Thread):
 
             # pts, _, gt_boxes_3D = self.sequence_aug(pts, gt_boxes_3D, aug_prob=0.5)
             # # print('before aug', pts.shape)
-            pts, _, gt_boxes_3D = self.rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
+            # pts, _, gt_boxes_3D = self.rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
             # # print('after aug', pts.shape)
 
             if pts.shape[1] != 3:
@@ -124,6 +128,12 @@ class Training_Generator_Thread(threading.Thread):
 
             batch['encoded_pcs'][i]     = self.pc_encoder.encode(pts)
             batch['encoded_targets'][i] = self.target_encoder.encode(gt_boxes_3D)
+            batch['rgb_img'][i] = self.reader.get_image(selected_frame_ids[i])
+
+            _, _, P2 = self.reader.get_calib(selected_frame_ids[i])
+            batch['depth_map'][i] = self.reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='depth')
+            batch['intensity_map'][i] = self.reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='intensity')
+            batch['height_map'][i] = self.reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')
 
         # end = timeit.default_timer()
         # print('adding batch took {0}', end-start)
@@ -175,7 +185,7 @@ class TrainingGenerator:
                         return batch
                     except:
                         continue
-            time.sleep(5.)
+            time.sleep(.5)
         print('all Qs are empty')
 
     def start(self):

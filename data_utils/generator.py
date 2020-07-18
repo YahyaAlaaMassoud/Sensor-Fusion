@@ -15,7 +15,8 @@ from .add_rand_sample import add_random_sample
 def encode_batch(encoder, batch):
     if encoder is not None:
         return encoder.encode_batch(batch)
-    return batch
+    else:
+        return np.array(batch)
 
 
 def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None):
@@ -92,10 +93,10 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
 
     def get_batch(batch_id):
         selected_ids = get_ids(batch_id)
-        velo_batch, boxes_3D_batch = [], []
+        velo_batch, img_batch, depth_batch, intensity_batch, height_batch, boxes_3D_batch = [], [], [], [], [], []
         for i in range(len(selected_ids)):
             # Load data
-            pts, _ = reader.get_velo(selected_ids[i], use_fov_filter=False)  # Load velo
+            pts, ref = reader.get_velo(selected_ids[i], workspace_lim=((-35, 35), (-1, 3), (0, 70)), use_fov_filter=True)  # Load velo
             gt_boxes_3D = reader.get_boxes_3D(selected_ids[i])
 
             # Augment
@@ -119,7 +120,17 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
             velo_batch += [pts]
             boxes_3D_batch += [gt_boxes_3D]
 
-        return encode_batch(pc_encoder, velo_batch), encode_batch(target_encoder, boxes_3D_batch)
+            img_batch += [reader.get_image(selected_ids[i])]
+            _, _, P2 = reader.get_calib(selected_ids[i])
+            depth_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='depth')]
+            intensity_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='intensity')]
+            height_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')]
+
+        return encode_batch(pc_encoder, velo_batch), \
+               encode_batch(None, depth_batch), \
+               encode_batch(None, intensity_batch), \
+               encode_batch(None, height_batch), \
+               encode_batch(target_encoder, boxes_3D_batch)
     
     data_len = int(np.ceil(len(frame_ids) / batch_size))
 

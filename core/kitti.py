@@ -81,6 +81,87 @@ class KITTI:
     def get_ids(self, subset):
         assert subset in ['train', 'val', 'micro', 'trainval']
         return [line.rstrip('\n') for line in open(os.path.join(self.ds_dir, 'split', subset + '.txt'))]
+    
+    def get_img_shape(self, ):
+        return 375, 1242, 3
+
+    def get_range_view(self, img=None, pts=None, ref=None, P2=None, gt_boxes=None, pred_boxes=None, out_type=None):
+        if out_type not in ['depth', 'intensity', 'height']:
+            return None
+
+        if pts.shape[0] != 3:
+            pts = pts.T
+        if ref.shape[0] != 1:
+            ref = ref.T
+
+        if img is not None:
+            img = np.copy(img)  # Clone
+        else:
+            img = np.zeros((375, 1242, 3))
+
+        def draw_boxes_2D(boxes, color):
+            for box in boxes:
+                cv2.rectangle(img, (int(box.x1), int(box.y1)), (int(box.x2), int(box.y2)), color, 1)
+
+        def draw_boxes_3D(boxes, color):
+            for box in boxes:
+                corners = project(P2, box.get_corners()).astype(np.int32)
+                for start, end in BOX_CONNECTIONS:
+                    x1, y1 = corners[:, start]
+                    x2, y2 = corners[:, end]
+                    cv2.line(img, (x1, y1), (x2, y2), color, 1)
+
+        if gt_boxes is not None and len(gt_boxes) > 0:
+            if isinstance(gt_boxes[0], Box2D):
+                draw_boxes_2D(gt_boxes, GT_COLOR)
+            elif isinstance(gt_boxes[0], Box3D):
+                draw_boxes_3D(gt_boxes, GT_COLOR)
+        
+        if pts is not None:
+            if out_type == 'depth':
+                val, start = 70. / 5., 0.
+                cvals = []
+                for i in range(6):
+                    cvals.append(start + i * val)
+                colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # depth 
+                norm = plt.Normalize(0, 70) # depth 
+            elif out_type == 'intensity':
+                val, start = 1. / 5., 0.0
+                cvals = []
+                for i in range(6):
+                    cvals.append(start + i * val)
+                colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # intensity
+                norm = plt.Normalize(0, 1.0) # intensity
+            elif out_type == 'height':
+                val, start = 4. / 5., -1
+                cvals = []
+                for i in range(6):
+                    cvals.append(start + i * val)
+                colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # height
+                colors = colors[::-1]
+                norm = plt.Normalize(-1, 3.0) # height
+
+            tuples = list(zip(map(norm, cvals), colors))
+            cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
+
+            pts_projected = project(P2, pts).astype(np.int32).T
+            for i in range(pts.shape[0]):
+                if out_type == 'depth':
+                    clr = cmap(pts.T[i][2] / 70.) # depth 
+                elif out_type == 'intensity':
+                    clr = cmap(ref.T[i][0]) # intensity
+                elif out_type == 'height':
+                    clr = cmap((pts.T[i][1] + 1.) / 4.) # height
+                cv2.circle(img, (pts_projected[i][0], pts_projected[i][1]), 5, (clr[0], clr[1], clr[2]), -1)
+
+            # window_sz = 1
+            # for i in range(img.shape[0]):
+            #     for j in range(img.shape[1]):
+            #         if np.sum(img[i,j]) <= 0.0:
+            #             if i - window_sz >= 0 and j - window_sz >= 0 and i + window_sz <= img.shape[0] and j + window_sz <= img.shape[1]:
+            #                 img[i,j] = np.sum(img[i-window_sz:i+window_sz,j-window_sz:j+window_sz], axis=(0,1)) / (window_sz * 2)**2.
+
+        return img
 
 
 def get_image(path):
@@ -162,80 +243,6 @@ def get_calib(path):
                 P2 = np.insert(P2, 3, values=[0, 0, 0, 1], axis=0)  # Add bottom row
 
     return V2C, R0, P2
-
-
-def range_view(img=None, pts=None, ref=None, P2=None, gt_boxes=None, pred_boxes=None, out_type=None):
-    if out_type not in ['depth', 'intensity', 'height']:
-        return None
-
-    if img is not None:
-        img = np.copy(img)  # Clone
-    else:
-        img = np.zeros((375, 1242, 3))
-
-    def draw_boxes_2D(boxes, color):
-        for box in boxes:
-            cv2.rectangle(img, (int(box.x1), int(box.y1)), (int(box.x2), int(box.y2)), color, 1)
-
-    def draw_boxes_3D(boxes, color):
-        for box in boxes:
-            corners = project(P2, box.get_corners()).astype(np.int32)
-            for start, end in BOX_CONNECTIONS:
-                x1, y1 = corners[:, start]
-                x2, y2 = corners[:, end]
-                cv2.line(img, (x1, y1), (x2, y2), color, 1)
-
-    if gt_boxes is not None and len(gt_boxes) > 0:
-        if isinstance(gt_boxes[0], Box2D):
-            draw_boxes_2D(gt_boxes, GT_COLOR)
-        elif isinstance(gt_boxes[0], Box3D):
-            draw_boxes_3D(gt_boxes, GT_COLOR)
-    
-    if pts is not None:
-        if out_type == 'depth':
-            val, start = 70. / 5., 0.
-            cvals = []
-            for i in range(6):
-                cvals.append(start + i * val)
-            colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # depth 
-            norm = plt.Normalize(0, 70) # depth 
-        elif out_type == 'intensity':
-            val, start = 1. / 5., 0.0
-            cvals = []
-            for i in range(6):
-                cvals.append(start + i * val)
-            colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # intensity
-            norm = plt.Normalize(0, 1.0) # intensity
-        elif out_type == 'height':
-            val, start = 4. / 5., -1
-            cvals = []
-            for i in range(6):
-                cvals.append(start + i * val)
-            colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # height
-            colors = colors[::-1]
-            norm = plt.Normalize(-1, 3.0) # height
-
-        tuples = list(zip(map(norm, cvals), colors))
-        cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
-
-        pts_projected = project(P2, pts).astype(np.int32).T
-        for i in range(pts_projected.shape[0]):
-            if out_type == 'depth':
-                clr = cmap(pts.T[i][2] / 70.) # depth 
-            elif out_type == 'intensity':
-                clr = cmap(ref.T[i][0]) # intensity
-            elif out_type == 'height':
-                clr = cmap((pts.T[i][1] + 1.) / 4.) # height
-            cv2.circle(img, (pts_projected[i][0], pts_projected[i][1]), 5, (clr[0], clr[1], clr[2]), -1)
-
-        # window_sz = 1
-        # for i in range(img.shape[0]):
-        #     for j in range(img.shape[1]):
-        #         if np.sum(img[i,j]) <= 0.0:
-        #             if i - window_sz >= 0 and j - window_sz >= 0 and i + window_sz <= img.shape[0] and j + window_sz <= img.shape[1]:
-        #                 img[i,j] = np.sum(img[i-window_sz:i+window_sz,j-window_sz:j+window_sz], axis=(0,1)) / (window_sz * 2)**2.
-
-    return img
 
 
 def bev(pts=None, gt_boxes=None, pred_boxes=None, scale=1.0, title='', ax=None, save_path=None):
