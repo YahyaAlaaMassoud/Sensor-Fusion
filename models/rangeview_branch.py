@@ -11,13 +11,13 @@ def create_range_view_branch(input_shape=(375, 1242, 3),
   
   conv_inputs = []
   for input in init_inputs:
-    conv_inputs.append(create_res_conv_block(input, 24, 7, True))
+    conv_inputs.append(create_res_conv_block(input, 24, 7, True)) # /2
 
   inputs = deep_fuse_layer(conv_inputs, 24, 3, False)      # 2
   avg_l1 = Average()(inputs)
   inputs = deep_fuse_layer(inputs, 24, 3, False)      # 3
   avg_l2 = Average()(inputs)
-  inputs = deep_fuse_layer(inputs, 48, 3, True)      # 4
+  inputs = deep_fuse_layer(inputs, 48, 3, True)      # 4 /2
   avg_l3 = Average()(inputs)
   inputs = deep_fuse_layer(inputs, 48, 3, False)      # 5
   avg_l4 = Average()(inputs)
