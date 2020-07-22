@@ -99,17 +99,12 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
             pts, ref = reader.get_velo(selected_ids[i], workspace_lim=((-35, 35), (-1, 3), (0, 70)), use_fov_filter=True)  # Load velo
             gt_boxes_3D = reader.get_boxes_3D(selected_ids[i])
 
-            # Augment
-            if len(gt_boxes_3D) > 0:
-                if np.random.uniform() < 1.:
-                # print('before', len(gt_boxes_3D))
-                # print('before rand sam', pts.shape)
-                    pts, gt_boxes_3D, _ = add_random_sample_gen(gt_boxes_3D, pts)
-                # print(selected_frame_ids)
-                # print('after rand sam', pts.shape)
-                # print('after', len(gt_boxes_3D))
+            # add random boxes
+            # if len(gt_boxes_3D) > 0:
+            #     if np.random.uniform() < 1.:
+            #         pts, gt_boxes_3D, _ = add_random_sample_gen(gt_boxes_3D, pts)
 
-            pts, _, gt_boxes_3D = sequence_aug(pts, gt_boxes_3D, aug_prob=0.6)
+            # pts, _, gt_boxes_3D = sequence_aug(pts, gt_boxes_3D, aug_prob=0.6)
             # # # print('before aug', pts.shape)
             # pts, _, gt_boxes_3D = rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
 
@@ -127,6 +122,7 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
             height_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')]
 
         return encode_batch(pc_encoder, velo_batch), \
+               encode_batch(None, img_batch), \
                encode_batch(None, depth_batch), \
                encode_batch(None, intensity_batch), \
                encode_batch(None, height_batch), \
