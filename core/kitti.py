@@ -145,7 +145,7 @@ class KITTI:
             cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
 
             pts_projected = project(P2, pts).astype(np.int32).T
-            for i in range(pts.shape[0]):
+            for i in range(pts_projected.shape[0]):
                 if out_type == 'depth':
                     clr = cmap(pts.T[i][2] / 70.) # depth 
                 elif out_type == 'intensity':
@@ -161,7 +161,14 @@ class KITTI:
             #             if i - window_sz >= 0 and j - window_sz >= 0 and i + window_sz <= img.shape[0] and j + window_sz <= img.shape[1]:
             #                 img[i,j] = np.sum(img[i-window_sz:i+window_sz,j-window_sz:j+window_sz], axis=(0,1)) / (window_sz * 2)**2.
 
+            img = rgb2gray(img)
+            img = np.expand_dims(img, axis=-1)
+
         return img
+
+
+def rgb2gray(img):
+    return np.dot(img[...,:3], [0.2989, 0.5870, 0.1140])
 
 
 def get_image(path):
