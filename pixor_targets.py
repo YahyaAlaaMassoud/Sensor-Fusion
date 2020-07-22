@@ -212,12 +212,13 @@ class PIXORTargets:
             geo_map[..., :-1] += _geo_map
             geo_map[..., -1] += _geo_mask
 
+        obj_map, geo_map = np.rot90(obj_map), np.rot90(geo_map)
         return obj_map, geo_map
 
     def encode_batch(self, boxes_3D_batch):
         batch_size = len(boxes_3D_batch)
-        obj_map = np.zeros(shape=(batch_size, self.target_height, self.target_width, 2), dtype=np.float32)  # Channels   0 - label   1 - mask
-        geo_map = np.zeros(shape=(batch_size, self.target_height, self.target_width, self.num_channels + 1), dtype=np.float32)  # Channels   0-7 - regression vars   8 - mask
+        obj_map = np.zeros(shape=(batch_size, self.target_width, self.target_height, 2), dtype=np.float32)  # Channels   0 - label   1 - mask
+        geo_map = np.zeros(shape=(batch_size, self.target_width, self.target_height, self.num_channels + 1), dtype=np.float32)  # Channels   0-7 - regression vars   8 - mask
 
         for i in range(batch_size):
             obj_map[i], geo_map[i] = self.encode(boxes_3D_batch[i])
@@ -226,9 +227,9 @@ class PIXORTargets:
 
     def decode(self, target, confidence_thresh):
         boxes_3D = []
-        cls_map = target[..., 0]
+        cls_map = np.rot90(target[..., 0], -1)
         cls_map_flat = cls_map.flatten()
-        geometry_map = target[..., 1:]
+        geometry_map = np.rot90(target[..., 1:], -1)
         for positive_pt in self.feature_map_pts[cls_map_flat > confidence_thresh]:
             # Denormalize
             # geometry_map[positive_pt[1], positive_pt[0]] *= self.target_stds

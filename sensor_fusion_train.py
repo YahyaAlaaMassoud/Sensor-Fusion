@@ -179,7 +179,7 @@ print(configs['experiment_name'])
 for cur_epoch in range(1, EPOCHS):
     start = timeit.default_timer()
 
-    train_gen = KITTIGen(kitti, train_ids[:6], BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder)
+    train_gen = KITTIGen(kitti, configs['chosen_ids'], BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder)
     # train_gen = KITTIGen(kitti, val_ids, BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder)
 
     data_len = int(np.ceil(len(train_ids) / BATCH_SIZE))
@@ -187,8 +187,9 @@ for cur_epoch in range(1, EPOCHS):
     print(configs['experiment_name'])
 
     for batch in train_gen:
-        pc, depth_map, intensity_map, height_map, (obj, geo) = batch
+        pc, rgb_img, depth_map, intensity_map, height_map, (obj, geo) = batch
         print('bev.shape          ', pc.shape)
+        print('rgb_img.shape      ', rgb_img.shape)
         print('depth_map.shape    ', depth_map.shape)
         print('intensity_map.shape', intensity_map.shape)
         print('height_map.shape   ', height_map.shape)
@@ -211,12 +212,12 @@ for cur_epoch in range(1, EPOCHS):
             tf.summary.scalar('learning rate', data=cur_lr, step=train_steps)
         
         # start = datetime.now()
-        loss_value, grads = compute_grads(model, [pc, depth_map, intensity_map, height_map], (obj, geo))
+        loss_value, grads = compute_grads(model, [pc, rgb_img, depth_map, intensity_map, height_map], (obj, geo))
 
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
         # print((datetime.now() - start).total_seconds())
 
-        cur_metrics = compute_metric(model, [pc, depth_map, intensity_map, height_map], (obj, geo), True)   
+        cur_metrics = compute_metric(model, [pc, rgb_img, depth_map, intensity_map, height_map], (obj, geo), True)   
 
         for metric_name, metric_val in cur_metrics.items():
             with file_writer.as_default():
@@ -231,16 +232,21 @@ for cur_epoch in range(1, EPOCHS):
             vis_gen = KITTIGen(kitti, configs['chosen_ids'], 1, pc_encoder=pc_encoder, target_encoder=target_encoder)
             ii = 0
             for batch in vis_gen:
-                pc, depth_map, intensity_map, height_map, (obj, geo) = batch
+                pc, rgb_img, depth_map, intensity_map, height_map, (obj, geo) = batch
                 
                 obj_map, obj_mask = obj[...,0], obj[...,1]
                 obj_map  = np.expand_dims(np.expand_dims(np.squeeze(obj_map), axis=0), axis=-1)
                 obj_mask = np.expand_dims(np.expand_dims(np.squeeze(obj_mask), axis=0), axis=-1)
                 with img_writer.as_default():
-                    tf.summary.image('{}_obj_map'.format(configs['chosen_ids'][ii]), obj_map, step=train_steps)
-                    tf.summary.image('{}_obj_mask'.format(configs['chosen_ids'][ii]), obj_mask, step=train_steps)
+                    tf.summary.image('{}_obj_map_{}'.format(configs['chosen_ids'][ii], obj_map.shape), obj_map, step=train_steps)
+                    tf.summary.image('{}_obj_mask_{}'.format(configs['chosen_ids'][ii], obj_mask.shape), obj_mask, step=train_steps)
 
-                outmap = model(inputs=[pc, depth_map, intensity_map, height_map], training=False)
+                    tf.summary.image('{}_rgb_img_{}'.format(configs['chosen_ids'][ii], rgb_img.shape), rgb_img, step=train_steps)
+                    tf.summary.image('{}_depth_{}'.format(configs['chosen_ids'][ii], depth_map.shape), depth_map, step=train_steps)
+                    # tf.summary.image('{}_intensity_{}'.format(configs['chosen_ids'][ii], intensity_map.shape), intensity_map, step=train_steps)
+                    # tf.summary.image('{}_height_{}'.format(configs['chosen_ids'][ii], height_map.shape), height_map, step=train_steps)
+
+                outmap = model(inputs=[pc, rgb_img, depth_map, intensity_map, height_map], training=False)
                 obj = outmap[0].numpy()
                 geo = outmap[1].numpy()
 
@@ -250,6 +256,7 @@ for cur_epoch in range(1, EPOCHS):
                 pts, _ = kitti.get_velo(configs['chosen_ids'][ii], use_fov_filter=False)
                 boxes  = kitti.get_boxes_3D(configs['chosen_ids'][ii])
                 cnvs = bev(pts=pts.T, gt_boxes=boxes, pred_boxes=filtered_boxes)
+                cnvs = np.rot90(cnvs)
                 plt.imshow(cnvs)
                 plt.axis('off')
                 buf = io.BytesIO()
@@ -259,8 +266,8 @@ for cur_epoch in range(1, EPOCHS):
                 plot = tf.expand_dims(plot, 0)
 
                 with img_writer.as_default():
-                    tf.summary.image('{}_plot'.format(configs['chosen_ids'][ii]), plot, step=train_steps)
-                    tf.summary.image('{}_obj_pred'.format(configs['chosen_ids'][ii]), obj, step=train_steps)
+                    tf.summary.image('{}_plot_{}'.format(configs['chosen_ids'][ii], plot.shape), plot, step=train_steps)
+                    tf.summary.image('{}_obj_pred_{}'.format(configs['chosen_ids'][ii], obj.shape), obj, step=train_steps)
 
                 # del pts, boxes, pc, tar, outmap, obj
 
