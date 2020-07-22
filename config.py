@@ -21,6 +21,7 @@ from training_utils.metrics import reg_metric
 from training_utils.lr_schedulers import CosineDecayRestarts, CosineDecay, const_lr, NoisyLinearCosineDecay
 from pixor_targets import PIXORTargets
 from encoding_utils.pointcloud_encoder import OccupancyCuboidKITTI
+from encoding_utils.voxelizer import BEVVoxelizer
 from tensorflow.keras.optimizers import Adam, Adamax, SGD, RMSprop, Adadelta
 from tensorflow.keras.layers import Activation
 
@@ -34,7 +35,7 @@ configs = {
     'input_shape': (800, 700, 10),
     'target_encoder': PIXORTargets(shape=(200, 175), stats=dd.io.load('kitti_stats/stats.h5'),
                                     P_WIDTH=70, P_HEIGHT=80, P_DEPTH=4, subsampling_factor=(0.8, 1.2)),
-    'pc_encoder': OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=3, df=[0.1, 0.1, 0.4], densify=False),
+    'pc_encoder': BEVVoxelizer(n_x=448, n_y=512, n_z=32, side_range=(0,70), fwd_range=(-40,40), height_range=(-1, 3), filter_external=True),#OccupancyCuboidKITTI(x_min=0, x_max=70, y_min=-40, y_max=40, z_min=-1, z_max=3, df=[0.1, 0.1, 0.4], densify=False),
     'target_shape': (200, 175),
     'target_means': np.array([-6.4501972e-03, 
                               2.1161055e-02, 
@@ -55,7 +56,7 @@ configs = {
     'training_target': CARS_ONLY, # one of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
     'model_fn': create_sensor_fusion_net,
     'losses': {
-        'obj_map': focal(alpha=0.75, gamma=1., subsampling_flag=True, data_format='channels_last'),
+        'obj_map': focal(alpha=0.25, gamma=2., subsampling_flag=True, data_format='channels_last'),
         'geo_map': smooth_l1_loss(sigma=3., reg_channels=11, data_format='channels_last'),
     },
     'metrics': {
@@ -74,7 +75,7 @@ configs = {
                    ],
     },
     'callbacks': [],
-    'optimizer': Adam,
+    'optimizer': RMSprop,
     'experiment_name': '/sensor_fusion_1',
     'start_epoch': 0,
     'use_pretrained': False,
@@ -83,9 +84,9 @@ configs = {
     'custom_objects': {'BiFPN': BiFPN, 'PriorProbability': PriorProbability, 'Swish': Swish, 'GroupNormalization': GroupNormalization}, # Dict as {'BiFPN': BiFPN}
     'current_file_name': __file__,
     'stable': 0.0001,
-    'schedule1': const_lr(1e-3), # CosineDecay(initial_learning_rate=1e-8, decay_steps=1800, alpha=1e6),
-    'schedule2': const_lr(1e-4), #CosineDecay(initial_learning_rate=1e-3, decay_steps=20000, alpha=0.1),
-    'warmup_steps': 1856 * 1,
+    'schedule1': const_lr(1e-2), # CosineDecay(initial_learning_rate=1e-8, decay_steps=1800, alpha=1e6),
+    'schedule2': const_lr(1e-3), #CosineDecay(initial_learning_rate=1e-3, decay_steps=20000, alpha=0.1),
+    'warmup_steps': 6 * 30,
     'data_format': 'channels_last',
     'vis_every': 30, # 12691
 
@@ -96,7 +97,7 @@ configs = {
         'num_threads': 4,
         'max_q_size': 2,
         'validate_every': 1000,
-        'ckpt_every': 10000,
+        'ckpt_every': 100000,
         'n_val_samples': 300,
         'map_every': 5000,
     },
@@ -112,11 +113,11 @@ configs = {
         '000058',
         '000059',
         '000061',
-        '000062',
-        '000063',
-        '000065',
-        '000066',
-        '000076',
+        # '000062',
+        # '000063',
+        # '000065',
+        # '000066',
+        # '000076',
     ],
 
     'notes': '''
