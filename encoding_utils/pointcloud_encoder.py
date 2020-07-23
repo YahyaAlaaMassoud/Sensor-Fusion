@@ -59,6 +59,7 @@ class OccupancyCuboidKITTI(PointCloudEncoder):
         else:
             occupancy_grid[iy, ix, iz] = 1.
         
+        occupancy_grid = np.rot90(occupancy_grid)
         return occupancy_grid
     
     def encode_batch(self, pc_batch):
