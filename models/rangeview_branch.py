@@ -14,38 +14,26 @@ def create_range_view_branch(input_shape=(375, 1242, 3),
   
   conv_inputs = []
   for input in init_inputs:
-    conv_inputs.append(conv_block(input, 24, 7, 2)) # /2
+    conv_inputs.append(conv_block(input, 32, 7, 2)) # /2
 
   x = Average()(conv_inputs)
   l1 = x
 
-  for i in range(3): # same res
-    x = create_res_conv_block(x, 24, 3)
+  for i in range(4): # same res
+    x = create_res_conv_block(x, 32, 3)
   l2 = x
   
   for i in range(4): # same res
-    x = create_res_conv_block(x, 48, 3, i==0)
+    x = create_res_conv_block(x, 64, 3, i==0)
   l3 = x
 
-  for i in range(4): # same res
-    x = create_res_conv_block(x, 96, 3, i==0)
+  for i in range(6): # same res
+    x = create_res_conv_block(x, 128, 3, i==0)
   l4 = x 
   
-  # inputs = deep_fuse_layer(conv_inputs, 24, 3, False)      # 2
-  # avg_l1 = Average()(inputs)
-  # inputs = deep_fuse_layer(inputs, 24, 3, False)      # 3
-  # avg_l2 = Average()(inputs)
-  # inputs = deep_fuse_layer(inputs, 48, 3, True)      # 4 /2
-  # avg_l3 = Average()(inputs)
-  # inputs = deep_fuse_layer(inputs, 48, 3, False)      # 5
-  # avg_l4 = Average()(inputs)
-  # inputs = deep_fuse_layer(inputs, 92, 3, True)      # 6
-  # avg_l5 = Average()(inputs)
-
   return {
       'inputs': init_inputs,
       'outputs': [
-        l1,          
         l2,
         l3,
         l4,
