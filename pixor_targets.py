@@ -67,7 +67,7 @@ class TargetsEncoder(ABC):
     
 class PIXORTargets:
     # def __init__(self, shape, target_means, target_stds, mean_height, mean_altitude, P_WIDTH, P_HEIGHT, P_DEPTH):
-    def __init__(self, shape, P_WIDTH, P_HEIGHT, P_DEPTH, stats=None, subsampling_factor=(0.8, 1.2), num_channels=11):
+    def __init__(self, shape, P_WIDTH, P_HEIGHT, P_DEPTH, stats=None, subsampling_factor=(0.8, 1.2), num_channels=8):
         self.target_height, self.target_width = shape
         # self.target_means, self.target_stds = target_means, target_stds
         # self.mean_height, self.mean_altitude = mean_height, mean_altitude
@@ -184,10 +184,10 @@ class PIXORTargets:
                                                                        self.__normalize('log_l', np.log(target_box.l)),
                                                                        self.__normalize('log_h', np.log(target_box.h)))
 
-            # scaling ratio experiment
-            geometry_map[positive_pt[1], positive_pt[0], (8, 9,  10)] = (np.log(target_box.w) / self.stats['mean']['log_w'], 
-                                                                        np.log(target_box.l) / self.stats['mean']['log_l'],
-                                                                        np.log(target_box.h) / self.stats['mean']['log_h'],)
+            # # scaling ratio experiment
+            # geometry_map[positive_pt[1], positive_pt[0], (8, 9,  10)] = (np.log(target_box.w) / self.stats['mean']['log_w'], 
+            #                                                             np.log(target_box.l) / self.stats['mean']['log_l'],
+            #                                                             np.log(target_box.h) / self.stats['mean']['log_h'],)
 
             # # Normalize
             # geometry_map[positive_pt[1], positive_pt[0]] -= self.target_means
@@ -242,16 +242,16 @@ class PIXORTargets:
             x -= self.__denormalize('dx', geometry_map[positive_pt[1], positive_pt[0], 3])
             y  = self.__denormalize('alt', geometry_map[positive_pt[1], positive_pt[0], 4])
 
-            # # Size
-            # scaling ratio experiment
-            w1 = np.exp(geometry_map[positive_pt[1], positive_pt[0], 8] * self.stats['mean']['log_w'])
-            l1 = np.exp(geometry_map[positive_pt[1], positive_pt[0], 9] * self.stats['mean']['log_l'])
-            h1 = np.exp(geometry_map[positive_pt[1], positive_pt[0], 10] * self.stats['mean']['log_h'])
+            # # # Size
+            # # scaling ratio experiment
+            # w1 = np.exp(geometry_map[positive_pt[1], positive_pt[0], 8] * self.stats['mean']['log_w'])
+            # l1 = np.exp(geometry_map[positive_pt[1], positive_pt[0], 9] * self.stats['mean']['log_l'])
+            # h1 = np.exp(geometry_map[positive_pt[1], positive_pt[0], 10] * self.stats['mean']['log_h'])
 
-            ap = np.log(w1) * np.log(l1)
-            at = self.stats['mean']['log_w'] * self.stats['mean']['log_l']
-            if ap < at / 3:
-                continue
+            # ap = np.log(w1) * np.log(l1)
+            # at = self.stats['mean']['log_w'] * self.stats['mean']['log_l']
+            # if ap < at / 3:
+            #     continue
 
             # # # Size
             # # # w, l = np.exp(geometry_map[positive_pt[1], positive_pt[0], (4, 5)])
@@ -259,9 +259,9 @@ class PIXORTargets:
             l = np.exp(self.__denormalize('log_l', geometry_map[positive_pt[1], positive_pt[0], 6]))
             h = np.exp(self.__denormalize('log_h', geometry_map[positive_pt[1], positive_pt[0], 7]))
 
-            w = np.mean([w1, w])#w1#
-            l = np.mean([l1, l])#l1#
-            h = np.mean([h1, h])#h1#
+            # w = np.mean([w1, w])#w1#
+            # l = np.mean([l1, l])#l1#
+            # h = np.mean([h1, h])#h1#
 
             # Angle
             yaw = np.arctan2(self.__denormalize('sin', geometry_map[positive_pt[1], positive_pt[0], 1]),
