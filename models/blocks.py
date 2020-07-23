@@ -9,7 +9,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 from tensorflow.keras.layers import Conv2D, SeparableConv2D, ReLU, BatchNormalization, Add, DepthwiseConv2D, Activation, Dense, \
-                                       GlobalAveragePooling2D, Reshape, multiply, Layer, InputSpec, Average, Input
+                                       GlobalAveragePooling2D, Reshape, multiply, Layer, InputSpec, Average, Input, Dropout, Concatenate
 from tensorflow.keras import initializers, regularizers, constraints
 from tensorflow.keras.utils import get_custom_objects
 
@@ -230,6 +230,53 @@ def deep_fuse_layer(inputs, filters, kernel_size, strides):
     conv_list.append(create_res_conv_block(avg, filters, kernel_size, strides))
 
   return conv_list
+
+
+
+def factorized_bilinear_pooling(F1, F2, init_filters, new_filters):
+
+  F1_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1)(F1)
+  F1_expand = ReLU()(F1_expand)
+
+  F2_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1)(F2)
+  F2_expand = ReLU()(F2_expand)
+
+  inter = tf.keras.layers.multiply([F1_expand, F2_expand])
+  inter = Dropout(rate=0.1)(inter)
+
+  F = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1)(inter)
+  F = ReLU()(F)
+
+  power_normalize = tf.sqrt(tf.nn.relu(F)) - tf.sqrt(tf.nn.relu(-F))
+  l2_normalize = tf.nn.l2_normalize(power_normalize, axis=-1)
+
+  return l2_normalize
+
+
+def factorized_bilinear_pooling_new(F1, F2, init_filters, new_filters):
+
+  F1_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1)(F1)
+  F1_expand = ReLU()(F1_expand)
+
+  F2_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1)(F2)
+  F2_expand = ReLU()(F2_expand)
+
+  F_aux = Add()([F1_expand, F2_expand])
+
+  inter = tf.keras.layers.multiply([F1_expand, F2_expand])
+  inter = Dropout(rate=0.1)(inter)
+
+  F = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1)(inter)
+  F = ReLU()(F)
+
+  out = Concatenate()([F_aux, F])
+  out = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1)(out)
+  out = ReLU()(out)
+
+  power_normalize = tf.sqrt(tf.nn.relu(out)) - tf.sqrt(tf.nn.relu(-out))
+  l2_normalize = tf.nn.l2_normalize(power_normalize, axis=-1)
+
+  return l2_normalize
 
 
 
