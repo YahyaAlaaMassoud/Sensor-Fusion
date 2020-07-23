@@ -37,10 +37,10 @@ def reg_metric(value_idx, reg_channels):
         compute_metric.__name__ = 'log_l'
     elif value_idx == 7:
         compute_metric.__name__ = 'log_h'
-    elif value_idx == 8:
-        compute_metric.__name__ = 'ratio_log_w'
-    elif value_idx == 9:
-        compute_metric.__name__ = 'ratio_log_l'
-    elif value_idx == 10:
-        compute_metric.__name__ = 'ratio_log_h'
+    # elif value_idx == 8:
+    #     compute_metric.__name__ = 'ratio_log_w'
+    # elif value_idx == 9:
+    #     compute_metric.__name__ = 'ratio_log_l'
+    # elif value_idx == 10:
+    #     compute_metric.__name__ = 'ratio_log_h'
     return compute_metric
