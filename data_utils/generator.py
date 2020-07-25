@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 import threading
 import random
+import timeit
 
 from .augmentation import PointCloudAugmenter
 from .add_rand_sample import add_random_sample
@@ -70,6 +71,7 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
 
         return pts, ref, gt_boxes_3D
     
+
     def rand_aug(pts, gt_boxes_3D, ref=None, aug_prob=0.5):
         if pts.shape[1] != 3:
             pts = pts.T
@@ -121,17 +123,22 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
             intensity_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='intensity')]
             height_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')]
 
+        # start = timeit.default_timer()
         return encode_batch(pc_encoder, velo_batch), \
                encode_batch(None, img_batch), \
                encode_batch(None, depth_batch), \
                encode_batch(None, intensity_batch), \
                encode_batch(None, height_batch), \
                encode_batch(target_encoder, boxes_3D_batch)
+        # print('encoding took {}'.format(timeit.default_timer() - start))
     
     data_len = int(np.ceil(len(frame_ids) / batch_size))
 
     for i in range(data_len):
+        start = timeit.default_timer()
         yield get_batch(i)
+        print('batch took {}'.format(timeit.default_timer() - start))
+
 
 class Generator(tf.keras.utils.Sequence):
     def __init__(self, reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None):

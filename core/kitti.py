@@ -1,13 +1,14 @@
-import os
 
+import os
 import imagesize
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import timeit
 import pandas as pd
-from PIL import Image
 import cv2
 
+from PIL import Image
 from core.boxes import Box2D, Box3D
 from core.transforms_3D import transform, project
 
@@ -97,7 +98,7 @@ class KITTI:
         if img is not None:
             img = np.copy(img)  # Clone
         else:
-            img = np.zeros((375, 1242, 3))
+            img = np.zeros((375, 1242, 1))
 
         def draw_boxes_2D(boxes, color):
             for box in boxes:
@@ -118,41 +119,16 @@ class KITTI:
                 draw_boxes_3D(gt_boxes, GT_COLOR)
         
         if pts is not None:
-            if out_type == 'depth':
-                val, start = 70. / 5., 0.
-                cvals = []
-                for i in range(6):
-                    cvals.append(start + i * val)
-                colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # depth 
-                norm = plt.Normalize(0, 70) # depth 
-            elif out_type == 'intensity':
-                val, start = 1. / 5., 0.0
-                cvals = []
-                for i in range(6):
-                    cvals.append(start + i * val)
-                colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # intensity
-                norm = plt.Normalize(0, 1.0) # intensity
-            elif out_type == 'height':
-                val, start = 4. / 5., -1
-                cvals = []
-                for i in range(6):
-                    cvals.append(start + i * val)
-                colors = ["blue", "cyan", "green", "yellow", "orange", "red"] # height
-                colors = colors[::-1]
-                norm = plt.Normalize(-1, 3.0) # height
-
-            tuples = list(zip(map(norm, cvals), colors))
-            cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
 
             pts_projected = project(P2, pts).astype(np.int32).T
             for i in range(pts_projected.shape[0]):
                 if out_type == 'depth':
-                    clr = cmap(pts.T[i][2] / 70.) # depth 
+                    clr = pts.T[i][2] / 70.
                 elif out_type == 'intensity':
-                    clr = cmap(ref.T[i][0]) # intensity
+                    clr = ref.T[i][0]
                 elif out_type == 'height':
-                    clr = cmap((pts.T[i][1] + 1.) / 4.) # height
-                cv2.circle(img, (pts_projected[i][0], pts_projected[i][1]), 5, (clr[0], clr[1], clr[2]), -1)
+                    clr = 1. - (pts.T[i][1] + 1.) / 4.
+                cv2.circle(img, (pts_projected[i][0], pts_projected[i][1]), 4, float(clr), -1)
 
             # window_sz = 1
             # for i in range(img.shape[0]):
@@ -161,8 +137,8 @@ class KITTI:
             #             if i - window_sz >= 0 and j - window_sz >= 0 and i + window_sz <= img.shape[0] and j + window_sz <= img.shape[1]:
             #                 img[i,j] = np.sum(img[i-window_sz:i+window_sz,j-window_sz:j+window_sz], axis=(0,1)) / (window_sz * 2)**2.
 
-            img = rgb2gray(img)
-            img = np.expand_dims(img, axis=-1)
+            # img = rgb2gray(img)
+            # img = np.expand_dims(img, axis=-1)
 
         return img
 
