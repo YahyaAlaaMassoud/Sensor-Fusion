@@ -9,7 +9,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 from tensorflow.keras.layers import Conv2D, SeparableConv2D, ReLU, BatchNormalization, Add, DepthwiseConv2D, Activation, Dense, \
-                                       GlobalAveragePooling2D, Reshape, multiply, Layer, InputSpec, Average, Input, Dropout, Concatenate
+                                       GlobalAveragePooling2D, Reshape, multiply, Layer, InputSpec, Average, Input, Dropout, Concatenate, Subtract, Multiply, Lambda
 from tensorflow.keras import initializers, regularizers, constraints
 from tensorflow.keras.utils import get_custom_objects
 
@@ -253,28 +253,29 @@ def factorized_bilinear_pooling(F1, F2, init_filters, new_filters):
   return l2_normalize
 
 
-def factorized_bilinear_pooling_new(F1, F2, init_filters, new_filters):
+def factorized_bilinear_pooling_new(F1, F2, init_filters, new_filters, name=""):
 
-  F1_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1)(F1)
-  F1_expand = ReLU()(F1_expand)
+  F1_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1, name=name + "Conv1")(F1)
+  F1_expand = ReLU(name=name + "Relu1")(F1_expand)
 
-  F2_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1)(F2)
-  F2_expand = ReLU()(F2_expand)
+  F2_expand = Conv2D(filters=new_filters, kernel_size=1, padding='same', strides=1, name=name + "Conv2")(F2)
+  F2_expand = ReLU(name=name + "Relu2")(F2_expand)
 
-  F_aux = Add()([F1_expand, F2_expand])
+  F_aux = Add(name=name + "Add1")([F1_expand, F2_expand])
 
-  inter = tf.keras.layers.multiply([F1_expand, F2_expand])
-  inter = Dropout(rate=0.1)(inter)
+  inter = Multiply(name=name + "Mul1")([F1_expand, F2_expand])
+  inter = Dropout(rate=0.1, name=name + "Dropout1")(inter)
 
-  F = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1)(inter)
-  F = ReLU()(F)
+  F = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1, name=name + "Conv3")(inter)
+  F = ReLU(name=name + "Relu3")(F)
 
-  out = Concatenate()([F_aux, F])
-  out = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1)(out)
-  out = ReLU()(out)
+  out = Concatenate(name=name + "Concat")([F_aux, F])
+  out = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1, name=name + "Conv4")(out)
+  out = ReLU(name=name + "Relu4")(out)
 
-  power_normalize = tf.sqrt(tf.nn.relu(out)) - tf.sqrt(tf.nn.relu(-out))
-  l2_normalize = tf.nn.l2_normalize(power_normalize, axis=-1)
+  power_normalize = Subtract()([Lambda(tf.keras.backend.sqrt)(ReLU()(out)), Lambda(tf.keras.backend.sqrt)(ReLU()(-out))])
+  # power_normalize = tf.sqrt(tf.nn.relu(out)) - tf.sqrt(tf.nn.relu(-out))
+  l2_normalize = Lambda(tf.keras.backend.l2_normalize, arguments={'axis':-1})(power_normalize)
 
   return l2_normalize
 
