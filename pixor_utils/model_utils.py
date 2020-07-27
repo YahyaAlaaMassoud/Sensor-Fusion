@@ -3,10 +3,10 @@ from tensorflow.keras.models import model_from_json
 
 def save_model(model, save_dir, name, epoch):
     model_json = model.to_json()
-    with open(save_dir + name + "_epoch_{0}.json".format(epoch), "w") as json_file:
+    with open(save_dir + name + "_epoch_{}.json".format(epoch), "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    model.save_weights(save_dir + name + "_epoch_{0}.h5".format(epoch))
+    model.save_weights(save_dir + name + "_epoch_{}.h5".format(epoch))
     
 def load_model(json_path, weights_path, custom_objects=None):
     # load json and create model
