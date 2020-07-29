@@ -1,5 +1,6 @@
 
 import numpy as np
+import timeit
 
 from abc import ABC, abstractmethod
 from core.boxes import Box3D
@@ -67,7 +68,7 @@ class TargetsEncoder(ABC):
     
 class PIXORTargets:
     # def __init__(self, shape, target_means, target_stds, mean_height, mean_altitude, P_WIDTH, P_HEIGHT, P_DEPTH):
-    def __init__(self, shape, P_WIDTH, P_HEIGHT, P_DEPTH, stats=None, subsampling_factor=(0.8, 1.2), num_channels=8):
+    def __init__(self, shape, P_WIDTH, P_HEIGHT, P_DEPTH, stats=None, subsampling_factor=(0.8, 1.2), num_channels=9):
         self.target_height, self.target_width = shape
         # self.target_means, self.target_stds = target_means, target_stds
         # self.mean_height, self.mean_altitude = mean_height, mean_altitude
@@ -165,10 +166,14 @@ class PIXORTargets:
         for positive_pt in self.feature_map_pts[geo_mask]:
             # Angle
             # replacing (theta) -> (2 * theta) as proposed by BoxNet paper
+            if target_box.yaw > 0:
+                yaw_dir = 1
+            else:
+                yaw_dir = -1
             # should be values between [-1, 1]
             # geometry_map[positive_pt[1], positive_pt[0], (0, 1)] = (np.cos(box_3D.yaw), np.sin(box_3D.yaw))
-            geometry_map[positive_pt[1], positive_pt[0], (0, 1)] = (self.__normalize('cos', np.cos(target_box.yaw)), 
-                                                                    self.__normalize('sin', np.sin(target_box.yaw)))
+            geometry_map[positive_pt[1], positive_pt[0], (0, 1)] = (self.__normalize('cos', np.cos(target_box.yaw * yaw_dir)), 
+                                                                    self.__normalize('sin', np.sin(target_box.yaw * yaw_dir)))
 
             # Offset from center
             physical_z = positive_pt[0] / self.qf[0]  # Convert to physical space
@@ -183,6 +188,8 @@ class PIXORTargets:
             geometry_map[positive_pt[1], positive_pt[0], (5, 6, 7)] = (self.__normalize('log_w', np.log(target_box.w)), 
                                                                        self.__normalize('log_l', np.log(target_box.l)),
                                                                        self.__normalize('log_h', np.log(target_box.h)))
+                                                                    
+            geometry_map[positive_pt[1], positive_pt[0], 8] = yaw_dir                                                                 
 
             # # scaling ratio experiment
             # geometry_map[positive_pt[1], positive_pt[0], (8, 9,  10)] = (np.log(target_box.w) / self.stats['mean']['log_w'], 
@@ -216,6 +223,7 @@ class PIXORTargets:
         return obj_map, geo_map
 
     def encode_batch(self, boxes_3D_batch):
+
         batch_size = len(boxes_3D_batch)
         obj_map = np.zeros(shape=(batch_size, self.target_width, self.target_height, 2), dtype=np.float32)  # Channels   0 - label   1 - mask
         geo_map = np.zeros(shape=(batch_size, self.target_width, self.target_height, self.num_channels + 1), dtype=np.float32)  # Channels   0-7 - regression vars   8 - mask
@@ -263,9 +271,14 @@ class PIXORTargets:
             # l = np.mean([l1, l])#l1#
             # h = np.mean([h1, h])#h1#
 
+            yaw_dir = geometry_map[positive_pt[1], positive_pt[0], 8]
+            if yaw_dir > 0:
+                yaw_dir = 1
+            else:
+                yaw_dir = -1
             # Angle
             yaw = np.arctan2(self.__denormalize('sin', geometry_map[positive_pt[1], positive_pt[0], 1]),
-                             self.__denormalize('cos', geometry_map[positive_pt[1], positive_pt[0], 0]))
+                             self.__denormalize('cos', geometry_map[positive_pt[1], positive_pt[0], 0])) * yaw_dir
 
             decoded_box = Box3D(h=h, w=w, l=l,
                                 x=x, y=y, z=z,
