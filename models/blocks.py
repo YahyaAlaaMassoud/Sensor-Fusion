@@ -2,8 +2,8 @@
 
 import os
 
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -212,10 +212,11 @@ def reg_head(input_tensor, num_classes, depth, filters, data_format='channels_la
   return output
 
 
-def create_input_layer(input_shape, name):
+def create_input_layer(input_shape, name, dtype):
   return tf.keras.layers.Input(
       shape=input_shape,
       name=name,
+      dtype=dtype,
   )
 
 
@@ -278,6 +279,21 @@ def factorized_bilinear_pooling_new(F1, F2, init_filters, new_filters, name=""):
   l2_normalize = Lambda(tf.keras.backend.l2_normalize, arguments={'axis':-1})(power_normalize)
 
   return l2_normalize
+
+
+def transform_rangeview_to_bev(bev_map, out_filters):
+  filters = bev_map.shape[-1]
+
+  x = Conv2D(filters=filters, kernel_size=1, padding='same', strides=1)(bev_map)
+  x = BatchNormalization()(x)
+  x = ReLU()(x)
+
+  x = Conv2D(filters=filters, kernel_size=1, padding='same', strides=1)(x)
+  x = BatchNormalization()(x)
+  x = ReLU()(x)
+
+  x = Conv2D(filters=out_filters, kernel_size=1, padding='same', strides=1)(x) # last layer is linear
+  return x
 
 
 

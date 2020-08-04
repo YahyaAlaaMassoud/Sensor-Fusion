@@ -2,14 +2,14 @@
 import tensorflow as tf
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import UpSampling2D, Conv2DTranspose, AveragePooling2D, ZeroPadding2D, Add, Conv2D, Flatten, Reshape, MaxPooling2D, Average, Concatenate
+from tensorflow.keras.layers import UpSampling2D, Conv2DTranspose, AveragePooling2D, ZeroPadding2D, Add, Conv2D, Flatten, Reshape, MaxPooling2D, Average, Concatenate, Multiply, Conv2DTranspose
 from pprint import pprint
 
 from models.blocks import create_res_conv_block, create_input_layer, conv_block, factorized_bilinear_pooling_new, factorized_bilinear_pooling
 from models.rangeview_branch import create_range_view_branch
 
 def create_sensor_fusion_net():
-    bev_in = create_input_layer((448, 512, 32), 'bev')
+    bev_in = create_input_layer((448, 512, 32), 'bev', 'float32')
     x = bev_in
 
     '''
@@ -34,58 +34,31 @@ def create_sensor_fusion_net():
     '''
         Range View Net
     '''
-    rv_net = create_range_view_branch(input_shape=(375, 1242, 3), 
-                                  input_names=['rgb_img_input', 'depth_map_input', 'intensity_map_input', 'height_map_input'])
+    rv_net = create_range_view_branch()
     rv_inputs  = rv_net['inputs']
     rv_outputs = rv_net['outputs']
 
-    l2, l3, l4 = rv_outputs
+    RV2BEV_2x, RV2BEV_4x, RV2BEV_8x = rv_outputs
 
-    '''
-        RV FPN
-    '''
+    # print(f2.shape, RV2BEV_2x.shape)
+    # print(f3.shape, RV2BEV_4x.shape)
+    # print(f4.shape, RV2BEV_8x.shape)
 
-    out_map_sz = (112, 128)
-    TOP_DOWN_PYRAMID_SIZE = 96
+    F2 = factorized_bilinear_pooling_new(f2, RV2BEV_2x, RV2BEV_2x.shape[-1], RV2BEV_2x.shape[-1] * 2, "Bilinear1_")
+    F2 = MaxPooling2D()(F2)
+    F2 = conv_block(F2, RV2BEV_4x.shape[-1], 1, 1)
 
-    L2 = conv_block(l2, TOP_DOWN_PYRAMID_SIZE, 1, 1)
-    L2 = tf.image.resize(L2, (94, 311), 'nearest')
-    L2 = conv_block(L2, TOP_DOWN_PYRAMID_SIZE, 3, 1)
+    F3 = factorized_bilinear_pooling_new(f3, RV2BEV_4x, RV2BEV_4x.shape[-1], RV2BEV_4x.shape[-1] * 2, "Bilinear2_")
 
-    L3 = conv_block(l3, TOP_DOWN_PYRAMID_SIZE, 1, 1)
+    F4 = factorized_bilinear_pooling_new(f4, RV2BEV_8x, RV2BEV_8x.shape[-1], RV2BEV_8x.shape[-1] * 2, "Bilinear3_")
+    F4 = UpSampling2D()(F4)
+    F4 = conv_block(F4, RV2BEV_8x.shape[-1], 3, 1)
+    F4 = conv_block(F4, RV2BEV_4x.shape[-1], 1, 1)
 
-    L4 = conv_block(l4, TOP_DOWN_PYRAMID_SIZE, 1, 1)
-    L4 = tf.image.resize(L4, (94, 311), 'nearest')
-    L4 = conv_block(L4, TOP_DOWN_PYRAMID_SIZE, 3, 1)
+    # print(F2.shape, F3.shape, F4.shape)
 
-    RV_OUT = Add()([L2, L3, L4])
-    RV_OUT = tf.image.resize(RV_OUT, out_map_sz, 'nearest')
-    RV_OUT = conv_block(RV_OUT, TOP_DOWN_PYRAMID_SIZE, 3, 1)
-
-    # pprint([rv_l2, rv_l3, rv_l4, rv_l5])
-
-    '''
-        BEV FPN + Header
-    '''
-    F2 = conv_block(f2, TOP_DOWN_PYRAMID_SIZE, 1, 1)
-    F2 = tf.image.resize(F2, out_map_sz, 'nearest')
-    F2 = conv_block(F2, TOP_DOWN_PYRAMID_SIZE, 3, 1)
-    F2 = factorized_bilinear_pooling_new(F2, RV_OUT, TOP_DOWN_PYRAMID_SIZE, TOP_DOWN_PYRAMID_SIZE * 2)
-    # F2 = conv_block(F2, TOP_DOWN_PYRAMID_SIZE, 3, 1)
-
-    F3 = f3
-    F3 = conv_block(F3, TOP_DOWN_PYRAMID_SIZE, 1, 1)
-    F3 = factorized_bilinear_pooling_new(F3, RV_OUT, TOP_DOWN_PYRAMID_SIZE, TOP_DOWN_PYRAMID_SIZE * 2)
-    # F3 = conv_block(F3, TOP_DOWN_PYRAMID_SIZE, 3, 1)
-
-    F4 = conv_block(f4, TOP_DOWN_PYRAMID_SIZE, 1, 1)
-    F4 =  tf.image.resize(F4, out_map_sz, method='nearest')
-    F4 = conv_block(F4, TOP_DOWN_PYRAMID_SIZE, 3, 1)
-    F4 = factorized_bilinear_pooling_new(F4, RV_OUT, TOP_DOWN_PYRAMID_SIZE, TOP_DOWN_PYRAMID_SIZE * 2)
-    # F4 = conv_block(F4, TOP_DOWN_PYRAMID_SIZE, 3, 1)
-
-    BEV_OUT = Add()([F2, F3, F4])
-    OUT = create_res_conv_block(BEV_OUT, 96, 3)
+    BEV_OUT = Multiply()([F2, F3, F4])
+    OUT = create_res_conv_block(BEV_OUT, RV2BEV_4x.shape[-1], 3)
 
     obj_map = Conv2D(filters=1, 
                      kernel_size=1, 
@@ -93,7 +66,7 @@ def create_sensor_fusion_net():
                      activation='sigmoid', 
                      name='obj_map', 
                      kernel_initializer='glorot_normal')(OUT)
-    geo_map = Conv2D(filters=8, 
+    geo_map = Conv2D(filters=9, 
                      kernel_size=1, 
                      padding='same', 
                      activation=None, 
