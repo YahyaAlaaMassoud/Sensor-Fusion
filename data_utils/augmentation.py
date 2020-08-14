@@ -2,6 +2,29 @@
 import numpy as np
 import random
 import copy
+import cv2
+
+class ImageAugmenter:
+    @staticmethod
+    def flip_along_x():
+        
+        def __flip_along_x(org_img):
+            img = copy.deepcopy(org_img)
+            img = cv2.flip(img, 1)
+            return img
+        
+        return __flip_along_x
+
+    @staticmethod
+    def rotate_translate():
+        
+        def __rotate_translate(org_img, transformation):
+            img = copy.deepcopy(org_img)
+            img = cv2.warpAffine(img, transformation, (img.shape[1], img.shape[0]))
+            return img
+        
+        return __rotate_translate
+
 
 class PointCloudAugmenter:
     @staticmethod
@@ -236,7 +259,11 @@ class PointCloudAugmenter:
     @staticmethod
     def flip_along_x():
         
-        def __flip_along_x(gt_boxes_3d, pts, reflectance=None):
+        def __flip_along_x(org_gt_boxes_3d, org_pts, reflectance=None):
+            pts = copy.deepcopy(org_pts)
+            gt_boxes_3d = copy.deepcopy(org_gt_boxes_3d)
+            if pts.shape[1] != 3:
+                pts = pts.T
             pts[:, 0] = -pts[:, 0]
             for bb in gt_boxes_3d:
                 bb.x *= -1
@@ -266,16 +293,21 @@ class PointCloudAugmenter:
     @staticmethod
     def rotate_translate(rotation_range=np.pi / 20, translation_range=0.25, rotation=None, translation=None):
         
-        def __rotate_translate(gt_boxes_3d, pts, reflectance=None):
+        def __rotate_translate(org_gt_boxes_3d, org_pts, reflectance=None):
+            pts = copy.deepcopy(org_pts)
+            gt_boxes_3d = copy.deepcopy(org_gt_boxes_3d)
+            if pts.shape[1] != 3:
+                pts = pts.T
+
             u = np.random.uniform
             r = u(-rotation_range, rotation_range)
             # t = [[np.random.randn()*translation_range, 0, np.random.randn()*translation_range]]
-            t = [[u(-translation_range, translation_range), 0, u(-translation_range, translation_range)]]
+            t = [[u(-5., 5.), u(-1., 1.), 0]]
             if rotation is not None:
                 r = rotation
             if translation is not None:
                 t = translation
-            
+
             rot = PointCloudAugmenter.rot_matrix_3d(0, r, 0)
             rot = np.dot(rot[0], np.dot(rot[1], rot[2]))
             pts[:, :3] = np.dot(rot, pts[:, :3].T).T + t
@@ -287,15 +319,29 @@ class PointCloudAugmenter:
                 bb.yaw += r
                 PointCloudAugmenter.correct_box_rotation(bb)
                 # bb.compute_corners()
-            return pts, gt_boxes_3d, reflectance
+            
+            if -1e-10 < np.sum(r) < 1e-10:
+                r = None
+            if -1e-10 < np.sum(t) < 1e-10:
+                t = None
+            return pts,         \
+                   gt_boxes_3d, \
+                   reflectance, \
+                   {
+                       'r': r,
+                       't': t
+                   }
         
         return __rotate_translate
 
     @staticmethod
     def scale():
         
-        def __scale(gt_boxes_3d, pts, reflectance=None):
-            s = np.random.uniform(0.95, 1.05)
+        def __scale(gt_boxes_3d, org_pts, reflectance=None):
+            pts = copy.deepcopy(org_pts)
+            if pts.shape[1] != 3:
+                pts = pts.T
+            s = np.random.uniform(0.9, 1.1)
             pts[:, :3] = pts[:, :3] * s
             for bb in gt_boxes_3d:
                 bb.x *= s
@@ -305,6 +351,11 @@ class PointCloudAugmenter:
                 bb.l *= s
                 bb.h *= s
                 # bb.compute_corners()
-            return pts, gt_boxes_3d, reflectance
+            return pts, \
+                   gt_boxes_3d, \
+                   reflectance, \
+                   {
+                       's': s,
+                   }
         
         return __scale
