@@ -9,21 +9,48 @@ class ImageAugmenter:
     def flip_along_x():
         
         def __flip_along_x(org_img):
-            img = copy.deepcopy(org_img)
+            img = copy.copy(org_img)
             img = cv2.flip(img, 1)
+            if len(img.shape) != 3:
+                img = np.expand_dims(img, -1)
             return img
         
         return __flip_along_x
 
     @staticmethod
-    def rotate_translate():
+    def translate():
         
-        def __rotate_translate(org_img, transformation):
-            img = copy.deepcopy(org_img)
+        def __translate(org_img, transformation):
+            img = copy.copy(org_img)
+            pad = 25
+            img = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_REPLICATE)
             img = cv2.warpAffine(img, transformation, (img.shape[1], img.shape[0]))
+            img = img[pad:img.shape[0]-pad, pad:img.shape[1]-pad]
+            if len(img.shape) != 3:
+                img = np.expand_dims(img, -1)
             return img
         
-        return __rotate_translate
+        return __translate
+
+    @staticmethod
+    def scale():
+
+        def __scale(org_img, scale_factor):
+            img = copy.copy(org_img)
+            height = int(abs(1. - scale_factor) * img.shape[0]) // 2
+            width  = int(abs(1. - scale_factor) * img.shape[1]) // 2
+            if scale_factor > 1.:
+                new_img_2d = img[height:img.shape[0]-height,width:img.shape[1]-width]
+                new_img_2d = cv2.resize(new_img_2d, (img.shape[1], img.shape[0]))
+            else:
+                new_img_2d = cv2.copyMakeBorder(img, height, height, width, width, cv2.BORDER_REPLICATE) # cv2.BORDER_REPLICATE cv2.BORDER_REFLECT
+                new_img_2d = cv2.resize(new_img_2d, (img.shape[1], img.shape[0]))
+            if len(new_img_2d.shape) != 3:
+                new_img_2d = np.expand_dims(new_img_2d, -1)
+            return new_img_2d
+        
+        return __scale
+
 
 
 class PointCloudAugmenter:
@@ -115,13 +142,13 @@ class PointCloudAugmenter:
                     pts_keep = pts[d == 1, :].copy()
                     if reflectance:
                         reflectance_keep = reflectance[d == 1, ...].copy()
-                    box_3d_flipped = [copy.deepcopy(box) for box in list_box_side_label_pos]
+                    box_3d_flipped = [copy.copy(box) for box in list_box_side_label_pos]
                     box_3d_keep = list_box_side_label_pos
                 else:
                     pts_keep = pts[d == -1, :].copy()
                     if reflectance:
                         reflectance_keep = reflectance[d == -1, ...].copy()
-                    box_3d_flipped = [copy.deepcopy(box) for box in list_box_side_label_neg]
+                    box_3d_flipped = [copy.copy(box) for box in list_box_side_label_neg]
                     box_3d_keep = list_box_side_label_neg
 
                 pts_flipped, box_3d_flipped, _ = PointCloudAugmenter.flip_along_x()(box_3d_flipped, pts_keep.copy(), reflectance)
@@ -294,15 +321,15 @@ class PointCloudAugmenter:
     def rotate_translate(rotation_range=np.pi / 20, translation_range=0.25, rotation=None, translation=None):
         
         def __rotate_translate(org_gt_boxes_3d, org_pts, reflectance=None):
-            pts = copy.deepcopy(org_pts)
-            gt_boxes_3d = copy.deepcopy(org_gt_boxes_3d)
+            pts = copy.copy(org_pts)
+            gt_boxes_3d = copy.copy(org_gt_boxes_3d)
             if pts.shape[1] != 3:
                 pts = pts.T
 
             u = np.random.uniform
             r = u(-rotation_range, rotation_range)
             # t = [[np.random.randn()*translation_range, 0, np.random.randn()*translation_range]]
-            t = [[u(-5., 5.), u(-1., 1.), 0]]
+            t = [[u(-5., 5.), u(-0.5, 0.5), 0]]
             if rotation is not None:
                 r = rotation
             if translation is not None:
@@ -337,8 +364,9 @@ class PointCloudAugmenter:
     @staticmethod
     def scale():
         
-        def __scale(gt_boxes_3d, org_pts, reflectance=None):
-            pts = copy.deepcopy(org_pts)
+        def __scale(org_gt_boxes_3d, org_pts, reflectance=None):
+            pts = copy.copy(org_pts)
+            gt_boxes_3d = copy.copy(org_gt_boxes_3d)
             if pts.shape[1] != 3:
                 pts = pts.T
             s = np.random.uniform(0.9, 1.1)
