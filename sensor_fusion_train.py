@@ -18,7 +18,7 @@ from datetime import datetime
 from core.kitti import KITTI
 from pixor_utils.model_utils import load_model, save_model
 from data_utils.training_gen import TrainingGenerator
-from data_utils.generator import Generator, KITTIGen
+from data_utils.generator import Generator, KITTIGen, KITTIValGen
 from tt import bev
 from pixor_utils.post_processing import nms_bev
 from test_utils.unittest import test_pc_encoder, test_target_encoder
@@ -82,7 +82,10 @@ hist_writer = tf.summary.create_file_writer(hist_logdir)
 if configs['use_pretrained'] is False:
     model = configs['model_fn']()
 else:
-    model = load_model(configs['last_ckpt_json'], configs['last_ckpt_h5'], configs['custom_objects'])
+    print(configs['last_ckpt_json'], configs['last_ckpt_h5'])
+    model = configs['model_fn']()
+    model.load_weights(configs['last_ckpt_h5'])
+    # model = load_model(configs['last_ckpt_json'], configs['last_ckpt_h5'], configs['custom_objects'])
     
 optimizer = configs['optimizer'](lr=LEARNING_RATE)
 losses = configs['losses']
@@ -90,22 +93,28 @@ metrics = configs['metrics']
 
 model.summary()
 
-os.system('cp {0} {1}'.format(configs['current_file_name'], CKPTS_DIR + '/'))
+os.system('cp {0} {1}'.format(configs['current_file_name'], logdir + '/'))
+os.system('cp {0} {1}'.format(configs['current_model_file_name'], logdir + '/'))
 
 def compute_loss(model, x, y, training):
     # training=training is needed only if there are layers with different
     # behavior during training versus inference (e.g. Dropout, BatchNorm, etc.).
-    obj, geo = model(x, training=training)
+    obj, geo, _, _, _, _, _ = model(x, training=training)
+    # obj, geo = model.predict_step(x)
+
+    # print(obj.numpy().shape, geo.numpy().shape)
     
     obj_loss = losses['obj_map'](y[0], obj) * 1.0
-    geo_loss = losses['geo_map'](y[1], geo) * 3.0
+    geo_loss = losses['geo_map'](y[1], geo) * 4.0
+
+    # pprint.pprint(dir(obj_loss))
     
     return [obj_loss, geo_loss]
 
 def compute_metric(model, x, y, training):
     metric_values = {}
 
-    obj, geo = model(x, training=training)
+    obj, geo, _, _, _, _, _ = model(x, training=training)
     for key, metric_list in metrics.items():
         if key == 'geo_map':
             for metric_fn in metric_list:
@@ -179,23 +188,25 @@ print(configs['experiment_name'])
 for cur_epoch in range(1, EPOCHS):
     start = timeit.default_timer()
 
-    train_gen = KITTIGen(kitti, configs['chosen_ids'], BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder)
-    # train_gen = KITTIGen(kitti, val_ids, BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder)
+    # train_gen = KITTIGen(kitti, configs['chosen_ids'], BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder)
+    train_gen = KITTIGen(kitti, train_ids, BATCH_SIZE, pc_encoder=pc_encoder, target_encoder=target_encoder, aug=False)
 
     data_len = int(np.ceil(len(train_ids) / BATCH_SIZE))
     print('training on {} batches'.format(data_len))
     print(configs['experiment_name'])
 
     for batch in train_gen:
-        pc, rgb_img, depth_map, intensity_map, height_map, (obj, geo) = batch
-        print('bev.shape          ', pc.shape)
-        print('rgb_img.shape      ', rgb_img.shape)
-        print('depth_map.shape    ', depth_map.shape)
-        print('intensity_map.shape', intensity_map.shape)
-        print('height_map.shape   ', height_map.shape)
-        print('obj.shape          ', obj.shape)
-        print('geo.shape          ', geo.shape)
-        print('------------------------')
+        pc, rgb_img, depth_map, intensity_map, height_map, m2x, m4x, m8x, g2x, g4x, g8x, (obj, geo) = batch
+        # print('bev.shape          ', pc.shape)
+        # print('rgb_img.shape      ', rgb_img.shape)
+        # print('depth_map.shape    ', depth_map.shape)
+        # print('intensity_map.shape', intensity_map.shape)
+        # print('height_map.shape   ', height_map.shape)
+        # print('obj.shape          ', obj.shape)
+        # print('geo.shape          ', geo.shape)
+        # print('m2x.shape          ', m2x.shape)
+        # print('g2x.shape          ', g2x.shape)
+        # print('------------------------')
 
         if lr_steps < configs['warmup_steps'] and sched2 is False:
             if configs['schedule1'] is not None:
@@ -212,12 +223,12 @@ for cur_epoch in range(1, EPOCHS):
             tf.summary.scalar('learning rate', data=cur_lr, step=train_steps)
         
         # start = datetime.now()
-        loss_value, grads = compute_grads(model, [pc, rgb_img, depth_map, intensity_map, height_map], (obj, geo))
+        loss_value, grads = compute_grads(model, [pc, m2x, m4x, m8x, g2x, g4x, g8x, rgb_img, depth_map, intensity_map, height_map], (obj, geo))
 
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
         # print((datetime.now() - start).total_seconds())
 
-        cur_metrics = compute_metric(model, [pc, rgb_img, depth_map, intensity_map, height_map], (obj, geo), True)   
+        cur_metrics = compute_metric(model, [pc, m2x, m4x, m8x, g2x, g4x, g8x, rgb_img, depth_map, intensity_map, height_map], (obj, geo), True)   
 
         for metric_name, metric_val in cur_metrics.items():
             with file_writer.as_default():
@@ -229,11 +240,11 @@ for cur_epoch in range(1, EPOCHS):
                     tf.summary.histogram(var.name, var, step=train_steps)
 
         if train_steps % configs['vis_every'] is 0 and train_steps is not 0:
-            vis_gen = KITTIGen(kitti, configs['chosen_ids'], 1, pc_encoder=pc_encoder, target_encoder=target_encoder)
+            vis_gen = KITTIGen(kitti, configs['chosen_ids'], 1, pc_encoder=pc_encoder, target_encoder=target_encoder, aug=False)
             ii = 0
             for batch in vis_gen:
-                pc, rgb_img, depth_map, intensity_map, height_map, (obj, geo) = batch
-                
+                pc, rgb_img, depth_map, intensity_map, height_map, m2x, m4x, m8x, g2x, g4x, g8x, (obj, geo) = batch
+
                 obj_map, obj_mask = obj[...,0], obj[...,1]
                 obj_map  = np.expand_dims(np.expand_dims(np.squeeze(obj_map), axis=0), axis=-1)
                 obj_mask = np.expand_dims(np.expand_dims(np.squeeze(obj_mask), axis=0), axis=-1)
@@ -243,17 +254,28 @@ for cur_epoch in range(1, EPOCHS):
 
                     tf.summary.image('{}_rgb_img_{}'.format(configs['chosen_ids'][ii], rgb_img.shape), rgb_img, step=train_steps)
                     tf.summary.image('{}_depth_{}'.format(configs['chosen_ids'][ii], depth_map.shape), depth_map, step=train_steps)
-                    # tf.summary.image('{}_intensity_{}'.format(configs['chosen_ids'][ii], intensity_map.shape), intensity_map, step=train_steps)
+                    tf.summary.image('{}_intensity_{}'.format(configs['chosen_ids'][ii], intensity_map.shape), intensity_map, step=train_steps)
                     # tf.summary.image('{}_height_{}'.format(configs['chosen_ids'][ii], height_map.shape), height_map, step=train_steps)
 
-                outmap = model(inputs=[pc, rgb_img, depth_map, intensity_map, height_map], training=False)
-                obj = outmap[0].numpy()
-                geo = outmap[1].numpy()
+                obj, geo, rvout, rv2bev_2x, rv2bev_4x, rv2bev_8x, bevout = model(inputs=[pc, m2x, m4x, m8x, g2x, g4x, g8x, rgb_img, depth_map, intensity_map, height_map], training=False)
+                obj = obj.numpy()
+                geo = geo.numpy()
+
+                def process_fmap(fmap):
+                    fmap = np.expand_dims(np.sum(fmap.numpy(), -1), -1)
+                    fmap = (fmap - np.amin(fmap)) / (np.amax(fmap) - np.amin(fmap))
+                    return fmap
+
+                rv2bev_2x = process_fmap(rv2bev_2x)
+                rv2bev_4x = process_fmap(rv2bev_4x)
+                rv2bev_8x = process_fmap(rv2bev_8x)
+                bevout = process_fmap(bevout)
+                rvout = process_fmap(rvout)
 
                 outmap = np.squeeze(np.concatenate((obj, geo), axis=-1))
-                decoded_boxes = target_encoder.decode(outmap, 0.25)
+                decoded_boxes = target_encoder.decode(outmap, 0.2)
                 filtered_boxes = nms(decoded_boxes)
-                pts, _ = kitti.get_velo(configs['chosen_ids'][ii], use_fov_filter=False)
+                pts, _ = kitti.get_velo(configs['chosen_ids'][ii], use_fov_filter=True)
                 boxes  = kitti.get_boxes_3D(configs['chosen_ids'][ii])
                 cnvs = bev(pts=pts.T, gt_boxes=boxes, pred_boxes=filtered_boxes)
                 cnvs = np.rot90(cnvs)
@@ -268,6 +290,11 @@ for cur_epoch in range(1, EPOCHS):
                 with img_writer.as_default():
                     tf.summary.image('{}_plot_{}'.format(configs['chosen_ids'][ii], plot.shape), plot, step=train_steps)
                     tf.summary.image('{}_obj_pred_{}'.format(configs['chosen_ids'][ii], obj.shape), obj, step=train_steps)
+                    tf.summary.image('{}_rvout_{}'.format(configs['chosen_ids'][ii], rvout.shape), rvout, step=train_steps)
+                    tf.summary.image('{}_bevout_{}'.format(configs['chosen_ids'][ii], bevout.shape), bevout, step=train_steps)
+                    tf.summary.image('{}_rv2bev_2x_{}'.format(configs['chosen_ids'][ii], rv2bev_2x.shape), rv2bev_2x, step=train_steps)
+                    tf.summary.image('{}_rv2bev_4x_{}'.format(configs['chosen_ids'][ii], rv2bev_4x.shape), rv2bev_4x, step=train_steps)
+                    tf.summary.image('{}_rv2bev_8x_{}'.format(configs['chosen_ids'][ii], rv2bev_8x.shape), rv2bev_8x, step=train_steps)
 
                 # del pts, boxes, pc, tar, outmap, obj
 
@@ -280,4 +307,4 @@ for cur_epoch in range(1, EPOCHS):
 
     if cur_epoch % configs['hyperparams']['ckpt_every'] == 0 and cur_epoch is not 0:
         print('Saving current checkpoint...')
-        save_model(model, CKPTS_DIR, configs['experiment_name'], cur_epoch + configs['start_epoch'])
+        save_model(model, logdir, configs['experiment_name'], cur_epoch + configs['start_epoch'])
