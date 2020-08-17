@@ -85,6 +85,22 @@ class KITTI:
     
     def get_img_shape(self, ):
         return 375, 1242, 3
+    
+    def get_rangeview_preprocessing(self, t):
+        loaded_npz = np.load('/home/yahyaalaa/Yahya/kitti_dev/preprocessed_data/rangeview/{}.npz'.format(t))
+        return loaded_npz['img'], \
+               loaded_npz['depth_map'], \
+               loaded_npz['intensity_map'], \
+               loaded_npz['height_map']
+
+    def get_contfuse_preprocessing(self, t):
+        loaded_npz = np.load('/home/yahyaalaa/Yahya/kitti_dev/preprocessed_data/cont_fuse/{}.npz'.format(t))
+        return loaded_npz['mapping2x'], \
+               loaded_npz['mapping4x'], \
+               loaded_npz['mapping8x'], \
+               loaded_npz['geo_feat2x'], \
+               loaded_npz['geo_feat4x'], \
+               loaded_npz['geo_feat8x']
 
     def get_range_view(self, img=None, pts=None, ref=None, P2=None, gt_boxes=None, pred_boxes=None, out_type=None):
         if out_type not in ['depth', 'intensity', 'height']:
