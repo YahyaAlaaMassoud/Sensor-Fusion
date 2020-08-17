@@ -8,8 +8,12 @@ import tensorflow as tf
 import threading
 import random
 import timeit
+# import knn
+import cv2
+import copy
 
-from .augmentation import PointCloudAugmenter
+from core.transforms_3D import project
+from .augmentation import PointCloudAugmenter, ImageAugmenter
 from .add_rand_sample import add_random_sample
 
 
@@ -20,10 +24,265 @@ def encode_batch(encoder, batch):
         return np.array(batch)
 
 
-def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None):
+def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None, aug=True):
     reader = reader
     frame_ids = frame_ids
     random.shuffle(frame_ids)
+
+    batch_size = batch_size
+    pc_encoder = pc_encoder
+    target_encoder = target_encoder
+
+    add_random_sample_gen = add_random_sample(num_samples=100, sort=False, filter_wall_thresh=300)
+    augmentations_arr = [
+                        PointCloudAugmenter.per_box_dropout(0.1), 
+                        PointCloudAugmenter.flip_along_x(),
+                        PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 15., translation_range=0.1),
+                        PointCloudAugmenter.scale(), 
+                        PointCloudAugmenter.rotate_translate(rotation_range=20. * np.pi / 180., translation_range=0),
+                        PointCloudAugmenter.rotate_translate(rotation_range=0, translation_range=0.75),
+                        PointCloudAugmenter.global_background_dropout(0.1),
+                    ]
+
+    pc_aug_dict = {
+        'per_box_dropout': PointCloudAugmenter.per_box_dropout(0.1),
+        'flip_along_x': PointCloudAugmenter.flip_along_x(),
+        'per_box_rot_trans': PointCloudAugmenter.per_box_rotation_translation(rotation_range=np.pi / 15., translation_range=0.15),
+        'scale': PointCloudAugmenter.scale(),
+        'rotate': PointCloudAugmenter.rotate_translate(rotation_range=45. * np.pi / 180., translation_range=0),
+        'translate': PointCloudAugmenter.rotate_translate(rotation_range=0, translation_range=0.75),
+        'global_dropout': PointCloudAugmenter.global_background_dropout(0.1),
+    }
+
+    img_aug_dict = {
+        'flip_along_x': ImageAugmenter.flip_along_x(),
+        'scale': ImageAugmenter.scale(),
+        'translate': ImageAugmenter.translate(),
+    }
+
+    def aug_flip_along_x(gt_boxes_3d, pc, img, depth_map, intensity_map, height_map):
+        aug_pc = copy.copy(pc)
+        aug_gt_boxes_3D = copy.copy(gt_boxes_3d)
+        aug_pc, aug_gt_boxes_3D, _ = pc_aug_dict['flip_along_x'](aug_gt_boxes_3D, aug_pc)
+        aug_img = img_aug_dict['flip_along_x'](img)
+        aug_depth_map = img_aug_dict['flip_along_x'](depth_map)
+        aug_intensity_map = img_aug_dict['flip_along_x'](intensity_map)
+        aug_height_map = img_aug_dict['flip_along_x'](height_map)
+
+        assert aug_img.shape == img.shape
+        assert aug_depth_map.shape == depth_map.shape
+        assert aug_intensity_map.shape == intensity_map.shape
+        assert aug_height_map.shape == height_map.shape
+
+        return aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map
+
+    def aug_translate(gt_boxes_3d, pc, img, depth_map, intensity_map, height_map):
+        aug_pc = copy.copy(pc)
+        aug_gt_boxes_3D = copy.copy(gt_boxes_3d)
+        aug_pc, aug_gt_boxes_3D, _, aug_dict = pc_aug_dict['translate'](aug_gt_boxes_3D, aug_pc)
+        aug_pc, aug_gt_boxes_3D, _ = PointCloudAugmenter.keep_valid_data(aug_gt_boxes_3D, aug_pc)
+        t = np.squeeze(aug_dict['t']).tolist()
+        # print(t)
+        t = np.float32([[1, 0, np.ceil(t[0] * 1242/140)],
+                        [0, 1, np.ceil(t[1] * 375/10)]])#8.87142857143)]])
+        
+        aug_img = img_aug_dict['translate'](img, t)
+        aug_depth_map = img_aug_dict['translate'](depth_map, t)
+        aug_intensity_map = img_aug_dict['translate'](intensity_map, t)
+        aug_height_map = img_aug_dict['translate'](height_map, t)
+        
+        assert aug_img.shape == img.shape
+        assert aug_depth_map.shape == depth_map.shape
+        assert aug_intensity_map.shape == intensity_map.shape
+        assert aug_height_map.shape == height_map.shape
+        
+        return aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map
+
+    def aug_scale(gt_boxes_3d, pc, img, depth_map, intensity_map, height_map):
+        aug_pc = copy.copy(pc)
+        aug_gt_boxes_3D = copy.copy(gt_boxes_3d)
+        aug_pc, aug_gt_boxes_3D, _, aug_dict = pc_aug_dict['scale'](aug_gt_boxes_3D, aug_pc)
+        aug_pc, aug_gt_boxes_3D, _ = PointCloudAugmenter.keep_valid_data(aug_gt_boxes_3D, aug_pc)
+        # print(aug_dict['s'])
+        
+        aug_img = img_aug_dict['scale'](img, aug_dict['s'])
+        aug_depth_map = img_aug_dict['scale'](depth_map, aug_dict['s'])
+        aug_intensity_map = img_aug_dict['scale'](intensity_map, aug_dict['s'])
+        aug_height_map = img_aug_dict['scale'](height_map, aug_dict['s'])
+        
+        assert aug_img.shape == img.shape
+        assert aug_depth_map.shape == depth_map.shape
+        assert aug_intensity_map.shape == intensity_map.shape
+        assert aug_height_map.shape == height_map.shape
+            
+        return aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map
+
+    def apply_aug(pc, gt_boxes_3D, img, depth_map, intensity_map, height_map):
+        if pc.shape[1] != 3:
+            pc = pc.T
+        
+        aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map = gt_boxes_3D, pc, img, depth_map, intensity_map, height_map
+        if np.random.uniform() > 0.15 and aug:
+            # print('I am augmenting')
+            aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map = aug_translate(aug_gt_boxes_3D, 
+                                                                                                               aug_pc, 
+                                                                                                               aug_img, 
+                                                                                                               aug_depth_map,
+                                                                                                               aug_intensity_map,
+                                                                                                               aug_height_map)
+
+            aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map = aug_scale(aug_gt_boxes_3D, 
+                                                                                                           aug_pc, 
+                                                                                                           aug_img, 
+                                                                                                           aug_depth_map,
+                                                                                                           aug_intensity_map,
+                                                                                                           aug_height_map)
+        if np.random.uniform() > 0.5 and aug:
+            print('I am augmenting')
+            aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map = aug_flip_along_x(aug_gt_boxes_3D, 
+                                                                                                                  aug_pc, 
+                                                                                                                  aug_img, 
+                                                                                                                  aug_depth_map,
+                                                                                                                  aug_intensity_map,
+                                                                                                                  aug_height_map)                                                                                                        
+                                                                                                                        
+
+        return aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map
+    
+
+    def get_ids(batch_id):
+        return frame_ids[batch_id * batch_size: (batch_id + 1) * batch_size]
+
+    
+    def bev2world(idx, jdx, bev_width, bev_length, world_width, world_length):
+        disc_factor_w, disc_factor_l = world_width / bev_width, world_length / bev_length
+        return np.array([idx * disc_factor_w - world_width / 2., 0.5, (bev_length - jdx) * disc_factor_l])
+
+    
+    def get_world_pts(pt_cloud, bev_width, bev_length, image_downsampling_factor, P2, parts=4):
+        # https://www.sicara.ai/blog/2017-07-05-fast-custom-knn-sklearn-cython
+        if pt_cloud.shape[0] != 3:
+            pt_cloud = pt_cloud.T
+        world_pts = []
+        # one time for each dim
+        for i in range(bev_length):
+            for j in range(bev_width):
+                world_pts.append(bev2world(j, i, bev_width, bev_length, 80, 70))
+        all_inds = []
+        for i in range(parts):
+            cur_part = np.array(world_pts[i * len(world_pts) // parts:i * len(world_pts) // parts + len(world_pts) // parts]).T
+            _, inds = knn.knn(cur_part.astype(np.float32),
+                            pt_cloud.astype(np.float32),
+                            1)
+            inds = np.squeeze(inds) - 1
+            all_inds = all_inds + inds.tolist()
+        world_pts = np.array(world_pts).T
+        nearest = pt_cloud[:,all_inds]
+        geo_feature = nearest - world_pts
+        nearest_projected = project(P2, nearest).astype(np.int32).T // image_downsampling_factor
+        return nearest_projected.reshape((bev_length, bev_width, 2)), geo_feature.reshape((bev_length, bev_width, 3))
+
+
+    def get_batch(batch_id):
+        selected_ids = get_ids(batch_id)
+        velo_batch, img_batch, depth_batch, intensity_batch, height_batch, boxes_3D_batch = [], [], [], [], [], []
+        mappings_2x, mappings_4x, mappings_8x = [], [], []
+        geos_2x, geos_4x, geos_8x = [], [], []
+        for i in range(len(selected_ids)):
+            # Load data
+            pts, ref = reader.get_velo(selected_ids[i], workspace_lim=((-35, 35), (-1, 3), (0, 70)), use_fov_filter=True)  # Load velo
+            gt_boxes_3D = reader.get_boxes_3D(selected_ids[i])
+
+            # add random boxes
+            # if len(gt_boxes_3D) > 0:
+            #     if np.random.uniform() < 1.:
+            #         pts, gt_boxes_3D, _ = add_random_sample_gen(gt_boxes_3D, pts)
+
+            # pts, _, gt_boxes_3D = sequence_aug(pts, gt_boxes_3D, aug_prob=0.6)
+            # # # print('before aug', pts.shape)
+            # pts, _, gt_boxes_3D = rand_aug(pts, gt_boxes_3D, aug_prob=0.5)
+
+            if pts.shape[1] != 3:
+                pts = pts.T
+
+            # Add to batch
+            # velo_batch += [pts]
+            # boxes_3D_batch += [gt_boxes_3D]
+
+            # img = reader.get_image(selected_ids[i])
+            # _, _, P2 = reader.get_calib(selected_ids[i])
+
+            # start = timeit.default_timer()
+            # depth_map = reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='depth')
+            # print('depth_map in:', timeit.default_timer() - start)
+
+            # start = timeit.default_timer()
+            # intensity_map = reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='intensity')
+            # print('intensity_map in:', timeit.default_timer() - start)
+
+            # start = timeit.default_timer()
+            # height_map = reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')
+            # print('height_map in:', timeit.default_timer() - start)
+
+            img, depth_map, intensity_map, height_map = reader.get_rangeview_preprocessing(selected_ids[i])
+
+            aug_gt_boxes_3D, aug_pc, aug_img, aug_depth_map, aug_intensity_map, aug_height_map = apply_aug(pts, 
+                                                                                                           gt_boxes_3D,
+                                                                                                           img,
+                                                                                                           depth_map,
+                                                                                                           intensity_map, 
+                                                                                                           height_map)
+
+            velo_batch += [aug_pc]
+            boxes_3D_batch += [aug_gt_boxes_3D]
+            img_batch += [aug_img]
+            depth_batch += [aug_depth_map]
+            intensity_batch += [aug_intensity_map]
+            height_batch += [aug_height_map]
+
+            # bev_length, bev_width = 448, 512
+            mapping_2x, mapping_4x, mapping_8x, geo_2x, geo_4x, geo_8x = reader.get_contfuse_preprocessing(selected_ids[i])
+            mapping_2x[:,:,(0,1)] = mapping_2x[:,:,(1,0)]
+            mapping_4x[:,:,(0,1)] = mapping_4x[:,:,(1,0)]
+            mapping_8x[:,:,(0,1)] = mapping_8x[:,:,(1,0)]
+            mappings_2x += [mapping_2x]
+            mappings_4x += [mapping_4x]
+            mappings_8x += [mapping_8x]
+            geos_2x += [geo_2x]
+            geos_4x += [geo_4x]
+            geos_8x += [geo_8x]
+            # mapping_2x, geo_2x = get_world_pts(pts, bev_width // 2, bev_length // 2, 4, P2)
+            # mapping_4x, geo_4x = get_world_pts(pts, bev_width // 4, bev_length // 4, 4, P2)
+            # mapping_8x, geo_8x = get_world_pts(pts, bev_width // 8, bev_length // 8, 4, P2)
+
+        # start = timeit.default_timer()
+        return encode_batch(pc_encoder, velo_batch), \
+               encode_batch(None, img_batch), \
+               encode_batch(None, depth_batch), \
+               encode_batch(None, intensity_batch), \
+               encode_batch(None, height_batch), \
+               encode_batch(None, mappings_2x), \
+               encode_batch(None, mappings_4x), \
+               encode_batch(None, mappings_8x), \
+               encode_batch(None, geos_2x), \
+               encode_batch(None, geos_4x), \
+               encode_batch(None, geos_8x), \
+               encode_batch(target_encoder, boxes_3D_batch)
+        # print('encoding took {}'.format(timeit.default_timer() - start))
+    
+    data_len = int(np.ceil(len(frame_ids) / batch_size))
+
+    for i in range(data_len):
+        start = timeit.default_timer()
+        yield get_batch(i)
+        # print('batch took {}'.format(timeit.default_timer() - start))
+
+
+
+def KITTIValGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None):
+    reader = reader
+    frame_ids = frame_ids
+    # random.shuffle(frame_ids)
 
     batch_size = batch_size
     pc_encoder = pc_encoder
@@ -96,6 +355,8 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
     def get_batch(batch_id):
         selected_ids = get_ids(batch_id)
         velo_batch, img_batch, depth_batch, intensity_batch, height_batch, boxes_3D_batch = [], [], [], [], [], []
+        mappings_2x, mappings_4x, mappings_8x = [], [], []
+        geos_2x, geos_4x, geos_8x = [], [], []
         for i in range(len(selected_ids)):
             # Load data
             pts, ref = reader.get_velo(selected_ids[i], workspace_lim=((-35, 35), (-1, 3), (0, 70)), use_fov_filter=True)  # Load velo
@@ -123,13 +384,28 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
             intensity_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='intensity')]
             height_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')]
 
+            # bev_length, bev_width = 448, 512
+            mapping_2x, mapping_4x, mapping_8x, geo_2x, geo_4x, geo_8x = reader.get_contfuse_preprocessing(selected_ids[i])
+            mappings_2x += [mapping_2x]
+            mappings_4x += [mapping_4x]
+            mappings_8x += [mapping_8x]
+            geos_2x += [geo_2x]
+            geos_4x += [geo_4x]
+            geos_8x += [geo_8x]
+
         # start = timeit.default_timer()
         return encode_batch(pc_encoder, velo_batch), \
                encode_batch(None, img_batch), \
                encode_batch(None, depth_batch), \
                encode_batch(None, intensity_batch), \
                encode_batch(None, height_batch), \
-               encode_batch(target_encoder, boxes_3D_batch)
+               encode_batch(None, mappings_2x), \
+               encode_batch(None, mappings_4x), \
+               encode_batch(None, mappings_8x), \
+               encode_batch(None, geos_2x), \
+               encode_batch(None, geos_4x), \
+               encode_batch(None, geos_8x), \
+               selected_ids
         # print('encoding took {}'.format(timeit.default_timer() - start))
     
     data_len = int(np.ceil(len(frame_ids) / batch_size))
@@ -137,7 +413,58 @@ def KITTIGen(reader, frame_ids, batch_size, pc_encoder=None, target_encoder=None
     for i in range(data_len):
         start = timeit.default_timer()
         yield get_batch(i)
-        print('batch took {}'.format(timeit.default_timer() - start))
+        # print('batch took {}'.format(timeit.default_timer() - start))
+
+
+def KITTICarRecognition2DGen(reader, frame_ids, batch_size):
+    reader = reader
+    frame_ids = frame_ids
+    random.shuffle(frame_ids)
+
+    batch_size = batch_size
+
+
+    def get_ids(batch_id):
+        return frame_ids[batch_id * batch_size: (batch_id + 1) * batch_size]
+
+    
+    def get_batch(batch_id):
+        selected_ids = get_ids(batch_id)
+        img_batch, depth_batch, intensity_batch, height_batch, target_map_batch = [], [], [], [], []
+        for i in range(len(selected_ids)):
+            # Load data
+            pts, ref = reader.get_velo(selected_ids[i], workspace_lim=((-35, 35), (-1, 3), (0, 70)), use_fov_filter=True)  # Load velo
+            gt_boxes_2D = reader.get_boxes_2D(selected_ids[i])
+
+            img_batch += [reader.get_image(selected_ids[i])]
+            _, _, P2 = reader.get_calib(selected_ids[i])
+            depth_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='depth')]
+            intensity_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='intensity')]
+            height_batch += [reader.get_range_view(img=None, pts=pts, ref=ref, P2=P2, gt_boxes=None, pred_boxes=None, out_type='height')]
+            
+            target_map = np.zeros((94, 311), dtype=np.uint8)
+            for box in gt_boxes_2D:
+                r = np.ceil(((box.w / 4) * (box.h / 4)) / (target_map.shape[0] * target_map.shape[1]) * 100)
+                cv2.circle(target_map, (int(box.cx / 4), int(box.cy / 4)), int((box.h / 4) / 2), (255, 255, 255), -1, lineType=cv2.LINE_AA)
+            target_map = np.expand_dims(target_map, -1).astype(np.float32) / 255.
+            target_map_batch += [target_map]            
+
+
+        # start = timeit.default_timer()
+        return encode_batch(None, img_batch), \
+               encode_batch(None, depth_batch), \
+               encode_batch(None, intensity_batch), \
+               encode_batch(None, height_batch), \
+               encode_batch(None, target_map_batch)
+        # print('encoding took {}'.format(timeit.default_timer() - start))
+    
+    data_len = int(np.ceil(len(frame_ids) / batch_size))
+
+    for i in range(data_len):
+        start = timeit.default_timer()
+        yield get_batch(i)
+        # print('batch took {}'.format(timeit.default_timer() - start))
+
 
 
 class Generator(tf.keras.utils.Sequence):
