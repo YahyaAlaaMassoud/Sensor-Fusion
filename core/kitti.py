@@ -93,14 +93,35 @@ class KITTI:
                loaded_npz['intensity_map'], \
                loaded_npz['height_map']
 
-    def get_contfuse_preprocessing(self, t):
-        loaded_npz = np.load('/home/yahyaalaa/Yahya/kitti_dev/preprocessed_data/cont_fuse/{}.npz'.format(t))
-        return loaded_npz['mapping2x'], \
-               loaded_npz['mapping4x'], \
-               loaded_npz['mapping8x'], \
-               loaded_npz['geo_feat2x'], \
-               loaded_npz['geo_feat4x'], \
-               loaded_npz['geo_feat8x']
+    def get_contfuse_nearest(self, t):
+        loaded_npz = np.load('/comm_dat/DATA/KITTI/contfuse_preprocess_nearest_pts/{}.npz'.format(t))
+        world_pts2x, nearest2x = loaded_npz['world_pts2x'], loaded_npz['nearest2x']
+        world_pts4x, nearest4x = loaded_npz['world_pts4x'], loaded_npz['nearest4x']
+        world_pts8x, nearest8x = loaded_npz['world_pts8x'], loaded_npz['nearest8x']
+        
+        return loaded_npz['world_pts2x'], \
+               loaded_npz['world_pts4x'], \
+               loaded_npz['world_pts8x'], \
+               loaded_npz['nearest2x'], \
+               loaded_npz['nearest4x'], \
+               loaded_npz['nearest8x']
+
+    def compute_contfuse_mapping(self, t, world_pts, nearest, bev_width, bev_length, image_downsampling_factor):
+        _, _, P2 = self.get_calib(t)
+        geo_feature = nearest - world_pts
+        nearest_projected = project(P2, nearest).astype(np.int32).T // image_downsampling_factor
+        mapping, geo = nearest_projected.reshape((bev_length, bev_width, 2)), geo_feature.reshape((bev_length, bev_width, 3))
+        mapping[:,:,(0,1)] = mapping[:,:,(1,0)]
+        if image_downsampling_factor == 2:
+            mapping[:,:,0] = np.clip(mapping[:,:,0], 0, 187)
+            mapping[:,:,1] = np.clip(mapping[:,:,1], 0, 620)
+        elif image_downsampling_factor == 4:
+            mapping[:,:,0] = np.clip(mapping[:,:,0], 0, 93)
+            mapping[:,:,1] = np.clip(mapping[:,:,1], 0, 310)
+        elif image_downsampling_factor == 8:
+            mapping[:,:,0] = np.clip(mapping[:,:,0], 0, 46)
+            mapping[:,:,1] = np.clip(mapping[:,:,1], 0, 155)
+        return mapping, geo
 
     def get_range_view(self, img=None, pts=None, ref=None, P2=None, gt_boxes=None, pred_boxes=None, out_type=None):
         if out_type not in ['depth', 'intensity', 'height']:
