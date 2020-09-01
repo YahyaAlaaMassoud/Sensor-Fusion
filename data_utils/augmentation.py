@@ -282,13 +282,25 @@ class PointCloudAugmenter:
                         (p2 >= 0) & (p2 <= np.dot(v2, v2)) &
                         (p3 >= 0) & (p3 <= np.dot(v3, v3)))[0]
         return inds
+
+    @staticmethod
+    def flip_along_x_pts_only():
+
+        def __flip_along_x(org_pts):
+            pts = copy.copy(org_pts)
+            if pts.shape[1] != 3:
+                pts = pts.T
+            pts[:, 0] = -pts[:, 0]
+            return pts
+        
+        return __flip_along_x
     
     @staticmethod
     def flip_along_x():
         
         def __flip_along_x(org_gt_boxes_3d, org_pts, reflectance=None):
-            pts = copy.deepcopy(org_pts)
-            gt_boxes_3d = copy.deepcopy(org_gt_boxes_3d)
+            pts = copy.copy(org_pts)
+            gt_boxes_3d = copy.copy(org_gt_boxes_3d)
             if pts.shape[1] != 3:
                 pts = pts.T
             pts[:, 0] = -pts[:, 0]
@@ -316,6 +328,19 @@ class PointCloudAugmenter:
             elif bb.yaw > np.pi:
                 bb.yaw = -2*np.pi + bb.yaw
             assert -np.pi <= bb.yaw <= np.pi
+
+    @staticmethod
+    def rotate_translate_pts_only():
+
+        def __rotate_translate(org_pts, t):
+            pts = copy.copy(org_pts)
+            if pts.shape[1] != 3:
+                pts = pts.T
+            pts[:, :3] = pts[:, :3] + t
+            return pts
+        
+        return __rotate_translate
+            
 
     @staticmethod
     def rotate_translate(rotation_range=np.pi / 20, translation_range=0.25, rotation=None, translation=None):
@@ -360,6 +385,18 @@ class PointCloudAugmenter:
                    }
         
         return __rotate_translate
+
+    @staticmethod 
+    def scale_pts_only():
+
+        def __scale(org_pts, scale_factor):
+            pts = copy.copy(org_pts)
+            if pts.shape[1] != 3:
+                pts = pts.T
+            pts[:, :3] = pts[:, :3] * scale_factor
+            return pts
+
+        return __scale
 
     @staticmethod
     def scale():
