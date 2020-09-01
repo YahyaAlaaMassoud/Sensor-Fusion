@@ -32,7 +32,7 @@ from encoding_utils.voxelizer import BEVVoxelizer
 DS_DIR = os.path.expanduser(configs['dataset_path'])
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 
 import tensorflow as tf
@@ -64,7 +64,7 @@ def bev2world(idx, jdx, bev_width, bev_length, world_width, world_length):
     z = (bev_length - jdx) * disc_factor_l
     return np.array([x, 0.5, z])
 
-def get_world_pts(pt_cloud, bev_width, bev_length, image_downsampling_factor, P2, parts=4):
+def get_nearest_neighbour(pt_cloud, bev_width, bev_length, image_downsampling_factor, P2, parts=4):
     if pt_cloud.shape[0] != 3:
         pt_cloud = pt_cloud.T
     world_pts = []
@@ -82,9 +82,18 @@ def get_world_pts(pt_cloud, bev_width, bev_length, image_downsampling_factor, P2
         all_inds = all_inds + inds.tolist()
     world_pts = np.array(world_pts).T
     nearest = pt_cloud[:,all_inds]
+    return world_pts, nearest
+    
+def get_contfuse_data(pt_cloud, bev_width, bev_length, image_downsampling_factor, P2, parts=4):
+    world_pts, nearest = get_nearest_neighbour(pt_cloud, bev_width, bev_length, image_downsampling_factor, P2, parts=4)
+    print('world_pts.shape', world_pts.shape)
+    print('nearest.shape  ', nearest.shape)
     geo_feature = nearest - world_pts
     nearest_projected = project(P2, nearest).astype(np.int32).T // image_downsampling_factor
-    return nearest_projected.reshape((bev_length, bev_width, 2)), geo_feature.reshape((bev_length, bev_width, 3))
+    return {
+        'mapping': nearest_projected.reshape((bev_length, bev_width, 2)),
+        'geo_feature': geo_feature.reshape((bev_length, bev_width, 3))
+    }
 
 for i, id in enumerate(train_ids + val_ids):
     pc, _ = kitti.get_velo(id, workspace_lim=((-40, 40), (-1, 3), (0, 70)), use_fov_filter=True)
@@ -93,22 +102,28 @@ for i, id in enumerate(train_ids + val_ids):
 #     img = cv2.resize(img, (311, 94))
 #     print('img.shape', img.shape)
     bev_shape = (448, 512)
-    mapping2x, geo_feat2x = get_world_pts(pc, bev_shape[1] // 2, bev_shape[0] // 2, 2, P2)
-    mapping2x[:,:,(0,1)] = mapping2x[:,:,(1,0)]
+    world_pts2x, nearest2x = get_nearest_neighbour(pc, bev_shape[1] // 2, bev_shape[0] // 2, 2, P2)
+    # mapping2x[:,:,(0,1)] = mapping2x[:,:,(1,0)]
 
-    mapping4x, geo_feat4x = get_world_pts(pc, bev_shape[1] // 4, bev_shape[0] // 4, 4, P2)
-    mapping4x[:,:,(0,1)] = mapping4x[:,:,(1,0)]
+    world_pts4x, nearest4x = get_nearest_neighbour(pc, bev_shape[1] // 4, bev_shape[0] // 4, 4, P2)
+    # mapping4x[:,:,(0,1)] = mapping4x[:,:,(1,0)]
 
-    mapping8x, geo_feat8x = get_world_pts(pc, bev_shape[1] // 8, bev_shape[0] // 8, 8, P2)
-    mapping8x[:,:,(0,1)] = mapping8x[:,:,(1,0)]
+    world_pts8x, nearest8x = get_nearest_neighbour(pc, bev_shape[1] // 8, bev_shape[0] // 8, 8, P2)
+    # mapping8x[:,:,(0,1)] = mapping8x[:,:,(1,0)]
 #     print(mapping2x.shape, geo_feat2x.shape)
 #     print(mapping4x.shape, geo_feat4x.shape)
 #     print(mapping8x.shape, geo_feat8x.shape)
-    np.savez_compressed('/comm_dat/DATA/KITTI/contfuse_preprocess/{}'.format(id), 
-                        mapping2x=mapping2x,
-                        mapping4x=mapping4x,
-                        mapping8x=mapping8x,
-                        geo_feat2x=geo_feat2x,
-                        geo_feat4x=geo_feat4x,
-                        geo_feat8x=geo_feat8x,)
+    np.savez_compressed('/comm_dat/DATA/KITTI/contfuse_preprocess_nearest_pts/{}'.format(id), 
+                        nearest2x=nearest2x,
+                        nearest4x=nearest4x,
+                        nearest8x=nearest8x,
+                        world_pts2x=world_pts2x,
+                        world_pts4x=world_pts4x,
+                        world_pts8x=world_pts8x,)
+                        # mapping2x=mapping2x,
+                        # mapping4x=mapping4x,
+                        # mapping8x=mapping8x,
+                        # geo_feat2x=geo_feat2x,
+                        # geo_feat4x=geo_feat4x,
+                        # geo_feat8x=geo_feat8x,)
     print(i, id)
