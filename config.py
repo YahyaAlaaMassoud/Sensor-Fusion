@@ -13,6 +13,8 @@ from models.pixor_pp_obj import create_pixor_pp_obj
 from models.initializers import PriorProbability
 from models.efficient_det import create_efficient_det
 from models.sensor_fusion_net import create_sensor_fusion_net
+from models.sensor_fusion_net_v2 import create_sensor_fusion_net_v2
+from models.sensor_fusion_net_v3 import create_sensor_fusion_net_v3
 from models.small_efficient_det import create_small_efficient_det
 from models.activations import Swish
 from models.blocks import GroupNormalization
@@ -28,7 +30,7 @@ from tensorflow.keras.layers import Activation
 
 configs = {
     'dataset_path': '/home/salam/datasets/KITTI/training', # absolute path
-    'gpu_id': '1', # zero-indexed (1-car | 0-ped) (7-car | 0-ped)
+    'gpu_id': '0', # zero-indexed (1-car | 0-ped) (7-car | 0-ped)
     'phy_width': 70,
     'phy_height': 80,
     'phy_depth': 4,
@@ -52,11 +54,14 @@ configs = {
     'mean_height': 1.52,
     'mean_altitude': 1.71,
     'stats': dd.io.load('kitti_stats/stats.h5'),
-    'ckpts_dir': 'contfuse_mlb',
+    'ckpts_dir': 'contfuse_mfb_v2',
+    'exp_name': '-v2',
     'training_target': CARS_ONLY, # one of the enums {ALL_VEHICLES, CARS_ONLY, PEDESTRIANS_ONLY, CYCLIST_ONLY}
-    'model_fn': create_sensor_fusion_net,
+    'model_fn': create_sensor_fusion_net_v2,
     'losses': {
-        'obj_map': focal(alpha=0.75, gamma=1.0, subsampling_flag=True, data_format='channels_last'),
+        # 'obj_map': focal(alpha=0.75, gamma=1.0, subsampling_flag=True, data_format='channels_last'),
+        'obj3d_map': focal(alpha=0.75, gamma=1.0, subsampling_flag=True, data_format='channels_last'),
+        'obj2d_map': focal(alpha=0.75, gamma=1.0, subsampling_flag=False, data_format='channels_last'),
         'geo_map': smooth_l1_loss(sigma=3., reg_channels=8, data_format='channels_last'),
     },
     'metrics': {
@@ -76,20 +81,20 @@ configs = {
     },
     'callbacks': [],
     'optimizer': RMSprop,
-    'experiment_name': '/contfuse_mlb',
-    'start_epoch': 32,
-    'use_pretrained': True,
-    'last_ckpt_json': 'outputs/contfuse_mlb/logs/08-15-05-17-(1)/contfuse_mlb_epoch_31.json', # absolute path
-    'last_ckpt_h5': 'outputs/contfuse_mlb/logs/08-15-05-17-(1)/contfuse_mlb_epoch_31.h5', # absolute path
+    'experiment_name': '/contfuse_mfb_v2',
+    'start_epoch': 0,
+    'use_pretrained': False,
+    'last_ckpt_json': 'outputs/contfuse_mfb/logs/09-03-19-52_mfb_fusion_aug_continue44/contfuse_mfb_epoch_58.json', # absolute path
+    'last_ckpt_h5': 'outputs/contfuse_mfb/logs/09-03-19-52_mfb_fusion_aug_continue44/contfuse_mfb_epoch_58.h5', # absolute path
     'custom_objects': {'BiFPN': BiFPN, 'PriorProbability': PriorProbability, 'Swish': Swish, 'GroupNormalization': GroupNormalization}, # Dict as {'BiFPN': BiFPN}
     'current_file_name': __file__,
     'current_model_file_name': '/home/yahyaalaa/Yahya/kitti_dev/models/sensor_fusion_net.py',
     'stable': 0.0001,
     'schedule1': const_lr(1e-4), # CosineDecay(initial_learning_rate=1e-8, decay_steps=1800, alpha=1e6),
     'schedule2': const_lr(1e-4), # CosineDecay(initial_learning_rate=1e-3, decay_steps=20000, alpha=0.1),
-    'warmup_steps': 1856 * 1,
+    'warmup_steps': 30,#1856 * 30,
     'data_format': 'channels_last',
-    'vis_every': 1856 // 2, # 12691
+    'vis_every': 20,#1856 // 2, # 12691
 
     'hyperparams': {
         'batch_size': 2,
@@ -104,24 +109,34 @@ configs = {
     },
 
     'chosen_ids': [
-        '000040',
-        '000042',
-        '000047',
-        '000048',
+        # '000040',
+        # '000042',
+        # '000047',
+        # '000048',
         '000050',
         '000052',
         '000053',
         '000058',
-        '000059',
-        '000061',
-        '000062',
-        '000063',
-        '000065',
-        '000066',
-        '000076',
+        # '000059',
+        # '000061',
+        # '000062',
+        # '000063',
+        # '000065',
+        # '000066',
+        # '000076',
     ],
 
     'notes': '''
-        feature map fusion -> Add
+        no supervision for 2D branch
+        def transform_rangeview_to_bev(bev_map, out_filters, name=''):
+            filters = bev_map.shape[-1]
+
+            # x = create_res_conv_block(bev_map, out_filters, 1, False, name=name + "_TransformRV2BEV")
+            x = conv_block(bev_map, filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_1')
+            x = conv_block(x, filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_2')
+            # # x = conv_block(x, out_filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_3')
+            x = Conv2D(filters=out_filters, kernel_size=1, strides=1, padding='same', name=name + '_TransformRV2BEV_3')(x)
+
+            return x
     '''
 }

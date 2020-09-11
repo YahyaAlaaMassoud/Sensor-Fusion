@@ -13,7 +13,9 @@ def load_model(json_path, weights_path, custom_objects=None):
     json_file = open(json_path, 'r')
     loaded_model_json = json_file.read()
     json_file.close()
+    # print(loaded_model_json)
     loaded_model = model_from_json(loaded_model_json, custom_objects)
+    # print(loaded_model)
     # load weights into new model
     loaded_model.load_weights(weights_path)
     print("Loaded model from disk")

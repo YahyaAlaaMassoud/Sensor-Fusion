@@ -8,12 +8,14 @@ import os
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-from tensorflow.keras.layers import Conv2D, SeparableConv2D, ReLU, BatchNormalization, Add, DepthwiseConv2D, Activation, Dense, \
+from tensorflow.keras.layers import Conv2D, SeparableConv2D, ReLU, BatchNormalization, Add, DepthwiseConv2D, Activation, Dense, AveragePooling2D, UpSampling2D, \
                                        GlobalAveragePooling2D, Reshape, multiply, Layer, InputSpec, Average, Input, Dropout, Concatenate, Subtract, Multiply, Lambda
 from tensorflow.keras import initializers, regularizers, constraints
 from tensorflow.keras.utils import get_custom_objects
 
 from tensorflow.keras.initializers import RandomNormal
+
+from .layers import BiFPN
 
 def squeeze_excite_block(input_tensor, ratio=4):
   init = input_tensor
@@ -63,11 +65,12 @@ def inverted_res_block(input_tensor, filters, kernel_size, expansion_factor, wid
 
   return x
 
-def conv_block(input_tensor, filters, kernel_size, strides, BN=True, data_format='channels_last', max_relu_val=None, act='relu', kr=None, group_bn=False, bn_groups=10):
+def conv_block(input_tensor, filters, kernel_size, strides, BN=True, data_format='channels_last', max_relu_val=None, act='relu', kr=None, group_bn=False, bn_groups=10, name=''):
   options = {
-    'kernel_initializer': RandomNormal(mean=0.0, stddev=0.01, seed=None),
+    'kernel_initializer': 'glorot_uniform',
     'bias_initializer': 'zeros',
     'kernel_regularizer': kr,
+    'name': name,
   }
   x = input_tensor
   with tf.name_scope("ConvBlock"):
@@ -77,14 +80,14 @@ def conv_block(input_tensor, filters, kernel_size, strides, BN=True, data_format
         if group_bn:
           x = GroupNormalization(groups=bn_groups, axis=1, epsilon=0.1)(x)
         else:
-          x = BatchNormalization(axis=1)(x)
+          x = BatchNormalization(axis=1, name=name+"_BN")(x)
       else:
         if group_bn:
           x = GroupNormalization(groups=bn_groups, axis=-1, epsilon=0.1)(x)
         else:
-          x = BatchNormalization(axis=-1)(x)
+          x = BatchNormalization(axis=-1, name=name+"_BN")(x)
     if act == 'relu':
-      x = ReLU(max_value=max_relu_val)(x)
+      x = ReLU(max_value=max_relu_val, name=name+"_ReLU")(x)
   return x
 
 def create_sep_conv_block(input_tensor, filters, kernel_size, BN=True, data_format='channels_last', max_relu_val=None):
@@ -111,7 +114,7 @@ def create_depthwise_conv_block(input_tensor, kernel_size, strides, BN=True, dat
     x = ReLU(max_value=max_relu_val)(x)
   return x 
 
-def create_res_conv_block(input_tensor, filters, kernel_size, first_of_block=False, BN=True, data_format='channels_last', max_relu_val=None):
+def create_res_conv_block(input_tensor, filters, kernel_size, first_of_block=False, BN=True, data_format='channels_last', max_relu_val=None, name=''):
   # https://github.com/raghakot/keras-resnet
 
   last_input = input_tensor
@@ -121,17 +124,19 @@ def create_res_conv_block(input_tensor, filters, kernel_size, first_of_block=Fal
       strides = 2
     last_input = Conv2D(filters=filters,
                         kernel_size=1,
-                        strides=strides)(last_input)
+                        strides=strides,
+                        name=name + "_DimChange",
+                        kernel_initializer='glorot_uniform')(last_input)
 
   x = input_tensor
 
-  for _ in range(2):
+  for j in range(2):
     if BN is True:
         if data_format == 'channels_first':
-          x = BatchNormalization(axis=1)(x)
+          x = BatchNormalization(axis=1, name=name+"_BN_{}".format(j))(x)
         else:
-          x = BatchNormalization(axis=-1)(x)
-    x = ReLU(max_value=max_relu_val)(x)
+          x = BatchNormalization(axis=-1, name=name+"_BN_{}".format(j))(x)
+    x = ReLU(max_value=max_relu_val, name=name+"_ReLU_{}".format(j))(x)
     strides = 1
     if first_of_block:
       strides = 2
@@ -140,10 +145,12 @@ def create_res_conv_block(input_tensor, filters, kernel_size, first_of_block=Fal
                kernel_size=kernel_size, 
                padding='same',
                use_bias=not BN,
+               kernel_initializer='glorot_uniform',
                strides=strides,
+               name=name + "_LastConv_{}".format(j),
                data_format=data_format)(x)
   
-  return Add()([x, last_input])
+  return Add(name=name+"_Add")([x, last_input])
 
 def create_res_sep_conv_block(input_tensor, filters, kernel_size, BN=True, data_format='channels_last', max_relu_val=None):
   last_input = input_tensor
@@ -274,28 +281,65 @@ def factorized_bilinear_pooling_new(F1, F2, init_filters, new_filters, name=""):
   out = Conv2D(filters=init_filters, kernel_size=1, padding='same', strides=1, name=name + "Conv4")(out)
   out = ReLU(name=name + "Relu4")(out)
 
-  power_normalize = Subtract()([Lambda(tf.keras.backend.sqrt)(ReLU()(out)), Lambda(tf.keras.backend.sqrt)(ReLU()(-out))])
+  power_normalize = Subtract()([Lambda(tf.keras.backend.sqrt)(ReLU(name=name+"Relu5")(out)), Lambda(tf.keras.backend.sqrt)(ReLU(name=name+"Relu6")(-out))])
   # power_normalize = tf.sqrt(tf.nn.relu(out)) - tf.sqrt(tf.nn.relu(-out))
   l2_normalize = Lambda(tf.keras.backend.l2_normalize, arguments={'axis':-1})(power_normalize)
 
   return l2_normalize
 
 
-def transform_rangeview_to_bev(bev_map, out_filters):
+def transform_rangeview_to_bev(bev_map, out_filters, name=''):
   filters = bev_map.shape[-1]
 
-  x = Conv2D(filters=filters, kernel_size=1, padding='same', strides=1)(bev_map)
-  x = BatchNormalization()(x)
-  x = ReLU()(x)
+  # x = create_res_conv_block(bev_map, out_filters, 1, False, name=name + "_TransformRV2BEV")
+  x = conv_block(bev_map, filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_1')
+  x = conv_block(x, filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_2')
+  # # x = conv_block(x, out_filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_3')
+  x = Conv2D(filters=out_filters, kernel_size=1, strides=1, padding='same', name=name + '_TransformRV2BEV_3')(x)
 
-  x = Conv2D(filters=filters, kernel_size=1, padding='same', strides=1)(x)
-  x = BatchNormalization()(x)
-  x = ReLU()(x)
-
-  x = Conv2D(filters=out_filters, kernel_size=1, padding='same', strides=1)(x) # last layer is linear
   return x
 
+def build_BiFPN(f1, f2, f3, filters=128, kernel_size=3, BN=True, max_relu_val=None, weighted=True, name=""):
 
+    def _sep_conv(x, i):
+        x = SeparableConv2D(filters=filters, 
+                            kernel_size=kernel_size, 
+                            padding='same', 
+                            use_bias=not BN, 
+                            kernel_regularizer=tf.keras.regularizers.l1_l2(l1=5e-4, l2=5e-4),
+                            name=name + "sepconv" + str(i))(x)
+        if BN is True:
+            x = BatchNormalization(name=name + "BN" + str(i))(x)
+        x = ReLU(max_value=max_relu_val, name=name + "Relu" + str(i))(x)
+        return x
+
+    fusion_fn = Add
+    if weighted:
+        fusion_fn = BiFPN
+    # print(fusion_fn.__name__)
+
+    f1_resized = AveragePooling2D(name=name + "avg_pool1")(f1)
+    f2_inter   = fusion_fn(name=name + "fusion1")([f2, f1_resized])
+    f2_inter   = _sep_conv(f2_inter, 0)
+    # print('f2_inter.shape', f2_inter.shape)
+
+    f2_inter_resized = AveragePooling2D(name=name + "avg_pool2")(f2_inter)
+    f3_out           = fusion_fn(name=name + "fusion2")([f2_inter_resized, f3])
+    f3_out           = _sep_conv(f3_out, 1)
+    # print('f3_out.shape', f3_out.shape)
+
+    f3_out_resized = UpSampling2D(name=name + "upsample1")(f3_out)
+    # f3_out_resized = ZeroPadding2D(((0,0), (0,1)))(f3_out_resized)
+    f2_out         = fusion_fn(name=name + "fusion3")([f2, f2_inter, f3_out_resized])
+    f2_out           = _sep_conv(f2_out, 2)
+    # print('f2_out.shape', f2_out.shape)
+
+    f2_out_resized = UpSampling2D(name=name + "upsample2")(f2_out)
+    f1_out         = fusion_fn(name=name + "fusion4")([f2_out_resized, f1])
+    f1_out           = _sep_conv(f1_out, 3)
+    # print('f1_out.shape', f1_out.shape)
+
+    return f1_out, f2_out, f3_out
 
 class GroupNormalization(Layer):
     """Group normalization layer
