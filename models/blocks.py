@@ -65,7 +65,7 @@ def inverted_res_block(input_tensor, filters, kernel_size, expansion_factor, wid
 
   return x
 
-def conv_block(input_tensor, filters, kernel_size, strides, BN=True, data_format='channels_last', max_relu_val=None, act='relu', kr=None, group_bn=False, bn_groups=10, name=''):
+def conv_block(input_tensor, filters, kernel_size, strides, BN=True, data_format='channels_last', max_relu_val=None, act='relu', kr=tf.keras.regularizers.l1_l2(l1=5e-4, l2=5e-4), group_bn=False, bn_groups=10, name=''):
   options = {
     'kernel_initializer': 'glorot_uniform',
     'bias_initializer': 'zeros',
@@ -295,7 +295,12 @@ def transform_rangeview_to_bev(bev_map, out_filters, name=''):
   x = conv_block(bev_map, filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_1')
   x = conv_block(x, filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_2')
   # # x = conv_block(x, out_filters, 1, 1, BN=False, name=name + '_TransformRV2BEV_3')
-  x = Conv2D(filters=out_filters, kernel_size=1, strides=1, padding='same', name=name + '_TransformRV2BEV_3')(x)
+  x = Conv2D(filters=out_filters, 
+             kernel_size=1, 
+             strides=1, 
+             padding='same', 
+             name=name + '_TransformRV2BEV_3',
+             kernel_regularizer=tf.keras.regularizers.l1_l2(l1=5e-4, l2=5e-4),)(x)
 
   return x
 
