@@ -1,5 +1,9 @@
 
 import numpy as np
+import timeit
+
+from numba import jit, extending
+from voxelizer_encoder import vox_encoder
 
 class BEVVoxelizer(object):
     def __init__(self, n_x, n_y, n_z, side_range, fwd_range, height_range, filter_external=True):
@@ -18,77 +22,109 @@ class BEVVoxelizer(object):
         self.xyzmin = [side_range[0], fwd_range[0], height_range[0]]
         self.xyzmax = [side_range[1], fwd_range[1], height_range[1]]
         self.filter_external = filter_external
-        self.side_range = side_range
-        self.fwd_range = fwd_range
-        self.height_range = height_range
+        self.side_range = list(side_range)
+        self.fwd_range = list(fwd_range)
+        self.height_range = list(height_range)
 
     def encode_batch(self, pc_batch):
         return np.array([self.encode(pc) for pc in pc_batch])
 
     def encode(self, pts):
-        '''pts: (N, 3) numpy.array
-        '''
-        
-        if pts.shape[1] != 3:
-            pts = pts.T
+        return _encode(pts, 
+                       self.x_y_z, 
+                       self.xyzmin,
+                       self.xyzmax,
+                       self.filter_external,
+                       self.side_range,
+                       self.fwd_range,
+                       self.height_range)
 
 
-        '''
-            make sure axes are well arranged (should not be placed here!!)
-        '''
-        new_pc = np.zeros(pts.shape)
-        new_pc[:,0] = pts[:,0]
-        new_pc[:,1] = pts[:,2]
-        new_pc[:,2] = pts[:,1]
+# @extending.overload(np.clip)
+# def np_clip(a, a_min, a_max, out=None):
+#     def np_clip_impl(a, a_min, a_max, out=None):
+#         if out is None:
+#             out = np.empty_like(a)
+#         for i in range(len(a)):
+#             if a[i] < a_min:
+#                 out[i] = a_min
+#             elif a[i] > a_max:
+#                 out[i] = a_max
+#             else:
+#                 out[i] = a[i]
+#         return out
+#     return np_clip_impl
 
-        pts = new_pc
-        
-        if self.filter_external:
-            # FILTER - To return only indices of points within desired box
-            # Three filters for: Front-to-back (y), side-to-side (x), and height (z) ranges
-            # Note left side is positive y axis in LIDAR coordinates
-            f_filt = np.logical_and((pts[:,0] > self.fwd_range[0]), (pts[:,0] < self.fwd_range[1]))
-            s_filt = np.logical_and((pts[:,1] > self.side_range[0]), (pts[:,1] < self.side_range[1]))
-            h_filt = np.logical_and((pts[:,2] > self.height_range[0]), (pts[:,2] < self.height_range[1]))
-            filter_xy = np.logical_and(f_filt, s_filt)
-            filter = np.logical_and(filter_xy, h_filt)
-            indices = np.argwhere(filter).flatten()
-            self.pts = pts[indices,:]
-        
-        else:
-            self.pts = pts
-        
-        segments = []
-        shape = []
 
-        for i in range(3):
-            # note the +1 in num
-            s, step = np.linspace(self.xyzmin[i], self.xyzmax[i], num=self.x_y_z[i]+1, retstep=True)
-            segments.append(s)
-            shape.append(step)
+def _encode(pts, x_y_z, xyzmin, xyzmax, filter_external, side_range, fwd_range, height_range):
+    # return vox_encoder(pts, x_y_z, xyzmin, xyzmax, filter_external, side_range, fwd_range, height_range) # Pythran
 
-        self.segments = segments
-        self.shape = shape
+    '''pts: (N, 3) numpy.array
+    '''
+    
+    if pts.shape[1] != 3:
+        pts = pts.T
 
-        self.n_voxels = self.x_y_z[0] * self.x_y_z[1] * self.x_y_z[2]
 
-        # find where each point lies in corresponding segmented axis
-        self.voxel_x = np.clip(segments[0].size - np.searchsorted(segments[0],  self.pts[:,1], side = "right") - 1, 0, self.x_y_z[0] - 1)
-        self.voxel_y = np.clip(segments[1].size - np.searchsorted(segments[1],  self.pts[:,0],  side = "right") - 1, 0, self.x_y_z[1] - 1)
-        self.voxel_z = np.clip(segments[2].size - np.searchsorted(segments[2],  self.pts[:,2],  side = "right") - 1, 0, self.x_y_z[2] - 1)
-        self.voxel_n = np.ravel_multi_index([self.voxel_x, self.voxel_y, self.voxel_z], self.x_y_z)
+    '''
+        make sure axes are well arranged (should not be placed here!!)
+    '''
+    new_pc = np.zeros(pts.shape)
+    new_pc[:,0] = pts[:,0]
+    new_pc[:,1] = pts[:,2]
+    new_pc[:,2] = pts[:,1]
 
-        # compute center of each voxel
-        self.midsegments = [(self.segments[i][1:] + self.segments[i][:-1]) / 2 for i in range(3)]
-        self.voxel_centers = cartesian(self.midsegments).astype(np.float32)
+    pts = new_pc
+    
+    if filter_external:
+        # FILTER - To return only indices of points within desired box
+        # Three filters for: Front-to-back (y), side-to-side (x), and height (z) ranges
+        # Note left side is positive y axis in LIDAR coordinates
+        f_filt = np.logical_and((pts[:,0] > fwd_range[0]), (pts[:,0] < fwd_range[1]))
+        s_filt = np.logical_and((pts[:,1] > side_range[0]), (pts[:,1] < side_range[1]))
+        h_filt = np.logical_and((pts[:,2] > height_range[0]), (pts[:,2] < height_range[1]))
+        filter_xy = np.logical_and(f_filt, s_filt)
+        filter = np.logical_and(filter_xy, h_filt).astype(np.int64)
+        filter = np.nonzero(filter)[0]
+        indices = np.transpose(filter).flatten() # np.argwhere(filter).flatten()
+        pts = pts[indices,:]
+    
+    else:
+        pts = pts
+    
+    segments = []
+    # shape = []
 
-        grid = np.zeros((self.x_y_z[1],self.x_y_z[0],self.x_y_z[2]), dtype=np.float32)
-        grid[self.voxel_y,self.voxel_x,self.voxel_z] = 1.
-        grid = np.rot90(grid, -1)
+    for i in range(3):
+        # note the +1 in num
+        # s, step = np.linspace(xyzmin[i], xyzmax[i], num=x_y_z[i]+1, retstep=True)
+        s = np.linspace(xyzmin[i], xyzmax[i], x_y_z[i]+1)
+        segments.append(s)
+        # shape.append(step)
 
-        return grid
+    # n_voxels = x_y_z[0] * x_y_z[1] * x_y_z[2]
 
-def cartesian(arrays, out=None):
+    # find where each point lies in corresponding segmented axis
+    voxel_x = np.clip(segments[0].size - np.searchsorted(segments[0], pts[:,1], side = "right") - 1, 0, x_y_z[0] - 1).astype(np.int64)
+    voxel_y = np.clip(segments[1].size - np.searchsorted(segments[1], pts[:,0],  side = "right") - 1, 0, x_y_z[1] - 1).astype(np.int64)
+    voxel_z = np.clip(segments[2].size - np.searchsorted(segments[2], pts[:,2],  side = "right") - 1, 0, x_y_z[2] - 1).astype(np.int64)
+    # voxel_n = np.ravel_multi_index([voxel_x, voxel_y, voxel_z], x_y_z)
+
+    # compute center of each voxel
+    # midsegments = [(segments[i][1:] + segments[i][:-1]) / 2 for i in range(3)]
+    # voxel_centers = cartesian(midsegments).astype(np.float32)
+
+    grid = np.zeros((x_y_z[1], x_y_z[0], x_y_z[2])).astype(np.float64)
+    # for y, x, z in zip(voxel_y, voxel_x, voxel_z):
+    #     grid[y, x, z] = 1.
+    grid[voxel_y, voxel_x, voxel_z] = 1.
+    grid = np.rot90(grid, -1)
+
+    return grid
+
+
+#pythran export cartesian(float list)
+def cartesian(arrays):
     """Generate a cartesian product of input arrays.
     Parameters
     ----------
@@ -118,16 +154,37 @@ def cartesian(arrays, out=None):
            [3, 5, 7]])
     """
     arrays = [np.asarray(x) for x in arrays]
-    shape = (len(x) for x in arrays)
+    shape = [len(x) for x in arrays]
     dtype = arrays[0].dtype
 
+    # print(shape)
     ix = np.indices(shape)
+    # print(ix.shape)
     ix = ix.reshape(len(arrays), -1).T
+    # print(ix.shape)
 
-    if out is None:
-        out = np.empty_like(ix, dtype=dtype)
+    out = np.empty_like(ix, dtype=dtype)
 
     for n, arr in enumerate(arrays):
         out[:, n] = arrays[n][ix[:, n]]
 
     return out
+
+
+# @jit(nopython=True)
+def indices(dimensions, dtype=int, sparse=False):
+    N = len(dimensions)
+    shape = [1,]*N
+    if sparse:
+        res = tuple()
+    else:
+        res = np.empty([N,]+dimensions, dtype=dtype)
+    for i, dim in enumerate(dimensions):
+        idx = np.arange(dim, dtype=dtype).reshape(
+            shape[:i] + [dim,] + shape[i+1:]
+        )
+        if sparse:
+            res = res + [idx,]
+        else:
+            res[i] = idx
+    return res
